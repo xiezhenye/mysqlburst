@@ -33,9 +33,14 @@ type SummeryResult struct {
 	totalSquareConnTime   big.Int
 	totalSquareQueryTime  big.Int
 
+	maxConnTime           time.Duration
+	minConnTime           time.Duration
 	avgConnTime           time.Duration
-	avgQueryTime          time.Duration
 	stddevConnTime        time.Duration
+
+	maxQueryTime          time.Duration
+	minQueryTime          time.Duration
+	avgQueryTime          time.Duration
 	stddevQueryTime       time.Duration
 }
 
@@ -80,13 +85,19 @@ func testRoutine(dsn, query string, n int, outChan chan<- TestResult) {
 }
 
 func summeryRoutine(inChan <-chan TestResult) SummeryResult {
-	var ret     SummeryResult
-	var bigA, big2 big.Int
-	var bigR1, bigR2, big1N, big1N1 big.Rat
-	big2.SetInt64(2)
+	var ret   SummeryResult
+	var bigA  big.Int
+	ret.minConnTime = math.MaxInt64
+	ret.minQueryTime = math.MaxInt64
 	for result := range inChan {
 		ret.count++
 		if result.connOk {
+			if result.connTime > ret.maxConnTime {
+				ret.maxConnTime = result.connTime
+			}
+			if result.connTime < ret.minConnTime {
+				ret.minConnTime = result.connTime
+			}
 			ret.totalConnTime+= result.connTime
 			bigA.SetInt64((int64)(result.connTime)).Mul(&bigA, &bigA)
 			ret.totalSquareConnTime.Add(&ret.totalSquareConnTime, &bigA)
@@ -94,6 +105,12 @@ func summeryRoutine(inChan <-chan TestResult) SummeryResult {
 			ret.connFailCount++
 		}
 		if result.queryOk {
+			if result.queryTime > ret.maxQueryTime {
+				ret.maxQueryTime = result.queryTime
+			}
+			if result.queryTime < ret.minQueryTime {
+				ret.minQueryTime = result.queryTime
+			}
 			ret.totalQueryTime+= result.queryTime
 			bigA.SetInt64((int64)(result.queryTime)).Mul(&bigA, &bigA)
 			ret.totalSquareQueryTime.Add(&ret.totalSquareQueryTime, &bigA)
@@ -101,32 +118,47 @@ func summeryRoutine(inChan <-chan TestResult) SummeryResult {
 			ret.queryFailCount++
 		}
 	}
-	//  ∑(i-miu)2 = ∑(i2)-(∑i)2/n
-	n := ret.count - ret.connFailCount
-	if n > 1 {
-		ret.avgConnTime = (time.Duration)((int64)(ret.totalConnTime) / n)
-
-		big1N.SetInt64(n).Inv(&big1N) // 1/n
-		big1N1.SetInt64(n-1).Inv(&big1N1) // 1/(n-1)
-		bigA.SetInt64((int64)(ret.totalConnTime)).Mul(&bigA, &bigA) // (∑i)2
-		bigR1.SetInt(&bigA).Mul(&bigR1, &big1N) // (∑i)2/n
-		bigR2.SetInt(&ret.totalSquareConnTime).Sub(&bigR2, &bigR1)
-		s2, _ := bigR2.Mul(&bigR2, &big1N1).Float64()
-		ret.stddevConnTime = (time.Duration)((int64)(math.Sqrt(s2)))
-	}
-	n = ret.count - ret.queryFailCount
-	if n > 1 {
-		ret.avgQueryTime = (time.Duration)((int64)(ret.totalQueryTime) / n)
-
-		big1N.SetInt64(n).Inv(&big1N) // 1/n
-		big1N1.SetInt64(n-1).Inv(&big1N1) // 1/(n-1)
-		bigA.SetInt64((int64)(ret.totalQueryTime)).Mul(&bigA, &bigA) // (∑i)2
-		bigR1.SetInt(&bigA).Mul(&bigR1, &big1N) // (∑i)2/n
-		bigR2.SetInt(&ret.totalSquareQueryTime).Sub(&bigR2, &bigR1)
-		s2, _ := bigR2.Mul(&bigR2, &big1N1).Float64()
-		ret.stddevQueryTime = (time.Duration)((int64)(math.Sqrt(s2)))
-	}
+	ret.Summery()
 	return ret
+}
+
+func (self *SummeryResult) Summery() {
+	var bigA, big2 big.Int
+	var bigR1, bigR2, big1N, big1N1 big.Rat
+	big2.SetInt64(2)
+	//  ∑(i-miu)2 = ∑(i2)-(∑i)2/n
+	n := self.count - self.connFailCount
+	if n > 1 {
+		self.avgConnTime = (time.Duration)((int64)(self.totalConnTime) / n)
+
+		big1N.SetInt64(n).Inv(&big1N) // 1/n
+		big1N1.SetInt64(n-1).Inv(&big1N1) // 1/(n-1)
+		bigA.SetInt64((int64)(self.totalConnTime)).Mul(&bigA, &bigA) // (∑i)2
+		bigR1.SetInt(&bigA).Mul(&bigR1, &big1N) // (∑i)2/n
+		bigR2.SetInt(&self.totalSquareConnTime).Sub(&bigR2, &bigR1)
+		s2, _ := bigR2.Mul(&bigR2, &big1N1).Float64()
+		self.stddevConnTime = (time.Duration)((int64)(math.Sqrt(s2)))
+	}
+
+	n = self.count - self.queryFailCount
+	if n > 1 {
+		self.avgQueryTime = (time.Duration)((int64)(self.totalQueryTime) / n)
+
+		big1N.SetInt64(n).Inv(&big1N) // 1/n
+		big1N1.SetInt64(n-1).Inv(&big1N1) // 1/(n-1)
+		bigA.SetInt64((int64)(self.totalQueryTime)).Mul(&bigA, &bigA) // (∑i)2
+		bigR1.SetInt(&bigA).Mul(&bigR1, &big1N) // (∑i)2/n
+		bigR2.SetInt(&self.totalSquareQueryTime).Sub(&bigR2, &bigR1)
+		s2, _ := bigR2.Mul(&bigR2, &big1N1).Float64()
+		self.stddevQueryTime = (time.Duration)((int64)(math.Sqrt(s2)))
+	}
+
+	if self.minConnTime == math.MaxInt64 {
+		self.minConnTime = 0
+	}
+	if self.minQueryTime == math.MaxInt64 {
+		self.minQueryTime = 0
+	}
 }
 
 type NullLogger struct{}
@@ -175,10 +207,16 @@ func main() {
 	fmt.Printf("failed queries: %d\n", summery.queryFailCount);
 	fmt.Printf("test time: %s\n", testEnd.Sub(testBegin).String())
 
-	fmt.Printf("avg conn time: %s\n", summery.avgConnTime.String())
-	fmt.Printf("stddev conn time: %s\n", summery.stddevConnTime.String())
+	fmt.Println("connect time")
+	fmt.Printf("avg: %s\n", summery.avgConnTime.String())
+	fmt.Printf("min: %s\n", summery.minConnTime.String())
+	fmt.Printf("max: %s\n", summery.maxConnTime.String())
+	fmt.Printf("stddev: %s\n", summery.stddevConnTime.String())
 
-	fmt.Printf("avg query time: %s\n", summery.avgQueryTime.String())
-	fmt.Printf("stddev query time: %s\n", summery.stddevQueryTime.String())
+	fmt.Println("query time")
+	fmt.Printf("avg: %s\n", summery.avgQueryTime.String())
+	fmt.Printf("min: %s\n", summery.minQueryTime.String())
+	fmt.Printf("max: %s\n", summery.minQueryTime.String())
+	fmt.Printf("stddev: %s\n", summery.stddevQueryTime.String())
 }
 
