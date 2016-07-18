@@ -216,7 +216,7 @@ func main() {
 	fmt.Println("query time")
 	fmt.Printf("avg: %s\n", summery.avgQueryTime.String())
 	fmt.Printf("min: %s\n", summery.minQueryTime.String())
-	fmt.Printf("max: %s\n", summery.minQueryTime.String())
+	fmt.Printf("max: %s\n", summery.maxQueryTime.String())
 	fmt.Printf("stddev: %s\n", summery.stddevQueryTime.String())
 }
 
