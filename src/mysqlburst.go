@@ -161,6 +161,10 @@ func (self *SummeryResult) Summery() {
 	}
 }
 
+func msStr(t time.Duration) string {
+	return fmt.Sprintf("%0.3f ms", float64(int64(t) / 1000) / 1000.0)
+}
+
 type NullLogger struct{}
 func (*NullLogger) Print(v ...interface{}) {
 }
@@ -183,7 +187,6 @@ func main() {
 	flag.StringVar(&query, "q", "select 1", "sql")
 	flag.Parse()
 
-
 	mysql.SetLogger(&NullLogger{})
 
 	wg := sync.WaitGroup{}
@@ -202,21 +205,22 @@ func main() {
 	}()
 	summery := summeryRoutine(resultChan)
 	testEnd := time.Now()
+	fmt.Printf("test time: %s\n", testEnd.Sub(testBegin).String())
+
 	fmt.Printf("total tests: %d\n", summery.count);
 	fmt.Printf("failed connections: %d\n", summery.connFailCount);
 	fmt.Printf("failed queries: %d\n", summery.queryFailCount);
-	fmt.Printf("test time: %s\n", testEnd.Sub(testBegin).String())
 
 	fmt.Println("connect time")
-	fmt.Printf("avg: %s\n", summery.avgConnTime.String())
-	fmt.Printf("min: %s\n", summery.minConnTime.String())
-	fmt.Printf("max: %s\n", summery.maxConnTime.String())
-	fmt.Printf("stddev: %s\n", summery.stddevConnTime.String())
-
+	fmt.Printf("avg: %s\n", msStr(summery.avgConnTime))
+	fmt.Printf("min: %s\n", msStr(summery.minConnTime))
+	fmt.Printf("max: %s\n", msStr(summery.maxConnTime))
+	fmt.Printf("stddev: %s\n", msStr(summery.stddevConnTime))
+	fmt.Println()
 	fmt.Println("query time")
-	fmt.Printf("avg: %s\n", summery.avgQueryTime.String())
-	fmt.Printf("min: %s\n", summery.minQueryTime.String())
-	fmt.Printf("max: %s\n", summery.maxQueryTime.String())
-	fmt.Printf("stddev: %s\n", summery.stddevQueryTime.String())
+	fmt.Printf("avg: %s\n", msStr(summery.avgQueryTime))
+	fmt.Printf("min: %s\n", msStr(summery.minQueryTime))
+	fmt.Printf("max: %s\n", msStr(summery.maxQueryTime))
+	fmt.Printf("stddev: %s\n", msStr(summery.stddevQueryTime))
 }
 
