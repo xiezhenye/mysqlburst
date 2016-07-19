@@ -115,15 +115,19 @@ func summeryRoutine(inChan <-chan TestResult, outChan chan<- SummeryResult, summ
 			ret.queryFailCount++
 		}
 		if summeryIntervalSecond > 0 {
-			if _, ok := <-ticker.C; ok {
+			select {
+			case <-ticker.C:
 				ret.Summery()
 				outChan<-ret
 				ret = SummeryResult{}
+                        default:
+				//
 			}
 		}
 	}
 	ret.Summery()
 	outChan<-ret
+        close(outChan)
 	return
 }
 
@@ -222,7 +226,7 @@ func main() {
 		fmt.Printf("total tests: %d\n", summery.count);
 		fmt.Printf("failed connections: %d\n", summery.connFailCount);
 		fmt.Printf("failed queries: %d\n", summery.queryFailCount);
-
+		fmt.Println()
 		fmt.Println("connect time")
 		fmt.Printf("avg: %s\n", msStr(summery.avgConnTime))
 		fmt.Printf("min: %s\n", msStr(summery.minConnTime))
