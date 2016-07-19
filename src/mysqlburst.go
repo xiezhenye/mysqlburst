@@ -76,13 +76,16 @@ func testRoutine(dsn, query string, n int, outChan chan<- TestResult) {
 	}
 }
 
-func summeryRoutine(inChan <-chan TestResult) SummeryResult {
+func summeryRoutine(inChan <-chan TestResult, outChan chan<- SummeryResult, summeryIntervalSecond int) {
 	var ret   SummeryResult
 	var bigA  big.Int
 	ret.minConnTime = math.MaxInt64
 	ret.minQueryTime = math.MaxInt64
-
-	// ticker := time.NewTicker(time.Second * 1)
+	var ticker *time.Ticker
+	if summeryIntervalSecond > 0 {
+		summeryInterval := time.Second * time.Duration(summeryIntervalSecond)
+		ticker = time.NewTicker(summeryInterval)
+	}
 	for result := range inChan {
 		ret.count++
 		if result.connOk {
@@ -111,9 +114,17 @@ func summeryRoutine(inChan <-chan TestResult) SummeryResult {
 		} else {
 			ret.queryFailCount++
 		}
+		if summeryIntervalSecond > 0 {
+			if _, ok := <-ticker.C; ok {
+				ret.Summery()
+				outChan<-ret
+				ret = SummeryResult{}
+			}
+		}
 	}
 	ret.Summery()
-	return ret
+	outChan<-ret
+	return
 }
 
 func (self *SummeryResult) Summery() {
@@ -174,11 +185,12 @@ func main() {
 	rounds := 0
 	dsn := ""
 	query := ""
-
+	summeryIntervalSec := 0
 	flag.IntVar(&procs, "c", 1000, "concurrency")
 	flag.IntVar(&rounds, "r", 100, "rounds")
 	flag.StringVar(&dsn, "d", "mysql:@tcp(127.0.0.1:3306)/mysql?timeout=5s&readTimeout=5s&writeTimeout=5s", "dsn")
 	flag.StringVar(&query, "q", "select 1", "sql")
+	flag.IntVar(&summeryIntervalSec, "i", 0, "summery interval (sec)")
 	flag.Parse()
 
 	mysql.SetLogger(&NullLogger{})
@@ -186,7 +198,8 @@ func main() {
 	wg := sync.WaitGroup{}
 	wg.Add(procs)
 	resultChan := make(chan TestResult, 5000)
-	testBegin := time.Now()
+	summeryChan := make(chan SummeryResult, 10)
+
 	go func() {
 		for i := 0; i < procs; i++ {
 			go func() {
@@ -197,24 +210,32 @@ func main() {
 		wg.Wait()
 		close(resultChan)
 	}()
-	summery := summeryRoutine(resultChan)
-	testEnd := time.Now()
-	fmt.Printf("test time: %s\n", testEnd.Sub(testBegin).String())
+	go summeryRoutine(resultChan, summeryChan, summeryIntervalSec)
 
-	fmt.Printf("total tests: %d\n", summery.count);
-	fmt.Printf("failed connections: %d\n", summery.connFailCount);
-	fmt.Printf("failed queries: %d\n", summery.queryFailCount);
+	testBegin := time.Now()
+	for summery := range summeryChan {
+		testEnd := time.Now()
+		duration:= testEnd.Sub(testBegin)
+		testBegin = testEnd
 
-	fmt.Println("connect time")
-	fmt.Printf("avg: %s\n", msStr(summery.avgConnTime))
-	fmt.Printf("min: %s\n", msStr(summery.minConnTime))
-	fmt.Printf("max: %s\n", msStr(summery.maxConnTime))
-	fmt.Printf("stddev: %s\n", msStr(summery.stddevConnTime))
-	fmt.Println()
-	fmt.Println("query time")
-	fmt.Printf("avg: %s\n", msStr(summery.avgQueryTime))
-	fmt.Printf("min: %s\n", msStr(summery.minQueryTime))
-	fmt.Printf("max: %s\n", msStr(summery.maxQueryTime))
-	fmt.Printf("stddev: %s\n", msStr(summery.stddevQueryTime))
+		fmt.Printf("test time: %s\n", duration.String())
+		fmt.Printf("total tests: %d\n", summery.count);
+		fmt.Printf("failed connections: %d\n", summery.connFailCount);
+		fmt.Printf("failed queries: %d\n", summery.queryFailCount);
+
+		fmt.Println("connect time")
+		fmt.Printf("avg: %s\n", msStr(summery.avgConnTime))
+		fmt.Printf("min: %s\n", msStr(summery.minConnTime))
+		fmt.Printf("max: %s\n", msStr(summery.maxConnTime))
+		fmt.Printf("stddev: %s\n", msStr(summery.stddevConnTime))
+		fmt.Println()
+		fmt.Println("query time")
+		fmt.Printf("avg: %s\n", msStr(summery.avgQueryTime))
+		fmt.Printf("min: %s\n", msStr(summery.minQueryTime))
+		fmt.Printf("max: %s\n", msStr(summery.maxQueryTime))
+		fmt.Printf("stddev: %s\n", msStr(summery.stddevQueryTime))
+		fmt.Println()
+	}
+
 }
 
