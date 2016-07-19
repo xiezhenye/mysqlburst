@@ -25,19 +25,18 @@ type TestResult struct {
 
 type SummeryResult struct {
 	count                 int64
+
 	connFailCount         int64
-	queryFailCount        int64
-
 	totalConnTime         time.Duration
-	totalQueryTime        time.Duration
 	totalSquareConnTime   big.Int
-	totalSquareQueryTime  big.Int
-
 	maxConnTime           time.Duration
 	minConnTime           time.Duration
 	avgConnTime           time.Duration
 	stddevConnTime        time.Duration
 
+	queryFailCount        int64
+	totalQueryTime        time.Duration
+	totalSquareQueryTime  big.Int
 	maxQueryTime          time.Duration
 	minQueryTime          time.Duration
 	avgQueryTime          time.Duration
@@ -58,14 +57,7 @@ func testOnce(dsn, query string) TestResult {
 	result.connTime = afterConn.Sub(beforeConn)
 	defer db.Close()
 
-	stmt, err := db.Prepare(query)
-	if err != nil {
-		result.queryOk = false
-		return result
-	}
-	defer stmt.Close()
-
-	rows, err := stmt.Query([]driver.Value{})
+	rows, err := db.(driver.Queryer).Query(query, []driver.Value{})
 	if err != nil {
 		//fmt.Println(err.Error())
 		result.queryOk = false
@@ -89,6 +81,8 @@ func summeryRoutine(inChan <-chan TestResult) SummeryResult {
 	var bigA  big.Int
 	ret.minConnTime = math.MaxInt64
 	ret.minQueryTime = math.MaxInt64
+
+	// ticker := time.NewTicker(time.Second * 1)
 	for result := range inChan {
 		ret.count++
 		if result.connOk {
