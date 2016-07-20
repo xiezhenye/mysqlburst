@@ -58,11 +58,12 @@ func getColumnCount(dsn, query string) (int, error) {
 }
 
 func testOnce(dsn, query string, row []driver.Value, result *[STAGE_MAX]TestResult) {
-	(*result)[STAGE_TOTAL].ok = false
+	for i := byte(0); i < STAGE_MAX; i++ {
+		(*result)[i].ok = false
+	}
 	beforeConn := time.Now()
 	db, err := (mysql.MySQLDriver{}).Open(dsn)
 	if err != nil {
-		(*result)[STAGE_CONN].ok = false
 		(*result)[STAGE_CONN].err = err
 		return
 	}
@@ -73,7 +74,6 @@ func testOnce(dsn, query string, row []driver.Value, result *[STAGE_MAX]TestResu
 
 	rows, err := db.(driver.Queryer).Query(query, []driver.Value{})
 	if err != nil {
-		(*result)[STAGE_QUERY].ok = false
 		(*result)[STAGE_QUERY].err = err
 		return
 	}
@@ -88,8 +88,6 @@ func testOnce(dsn, query string, row []driver.Value, result *[STAGE_MAX]TestResu
 		}
 	}
 	if err != nil && err != io.EOF {
-		(*result)[STAGE_READ].ok = false
-		(*result)[STAGE_TOTAL].ok = false
 		(*result)[STAGE_READ].err = err
 	} else {
 		afterRead := time.Now()
@@ -142,7 +140,9 @@ func summeryRoutine(inChan <-chan [STAGE_MAX]TestResult, outChan chan<- [STAGE_M
 				ret[i].totalSquareTime.Add(&ret[i].totalSquareTime, &bigA)
 			} else {
 				ret[i].failCount++
-				ret[i].lastError = result[i].err
+				if result[i].err != nil {
+					ret[i].lastError = result[i].err
+				}
 			}
 
 		}
