@@ -26,13 +26,12 @@ const (
 type TestResult struct {
 	stage                  byte
 	ok                     bool
+	err                    error
 	time                   time.Duration
 }
 
 type SummeryResult struct {
-	stage             byte
 	count             int64
-
 	failCount         int64
 	totalTime         time.Duration
 	totalSquareTime   big.Int
@@ -40,6 +39,7 @@ type SummeryResult struct {
 	minTime           time.Duration
 	avgTime           time.Duration
 	stddevTime        time.Duration
+	lastError         error
 }
 
 func getColumnCount(dsn, query string) (int, error) {
@@ -63,6 +63,7 @@ func testOnce(dsn, query string, row []driver.Value, result *[STAGE_MAX]TestResu
 	db, err := (mysql.MySQLDriver{}).Open(dsn)
 	if err != nil {
 		(*result)[STAGE_CONN].ok = false
+		(*result)[STAGE_CONN].err = err
 		return
 	}
 	(*result)[STAGE_CONN].ok = true
@@ -73,6 +74,7 @@ func testOnce(dsn, query string, row []driver.Value, result *[STAGE_MAX]TestResu
 	rows, err := db.(driver.Queryer).Query(query, []driver.Value{})
 	if err != nil {
 		(*result)[STAGE_QUERY].ok = false
+		(*result)[STAGE_QUERY].err = err
 		return
 	}
 	afterQuery := time.Now()
@@ -86,7 +88,9 @@ func testOnce(dsn, query string, row []driver.Value, result *[STAGE_MAX]TestResu
 		}
 	}
 	if err != io.EOF {
-		(*result)[STAGE_QUERY].ok = false
+		(*result)[STAGE_READ].ok = false
+		(*result)[STAGE_TOTAL].ok = false
+		(*result)[STAGE_READ].err = err
 	} else {
 		afterRead := time.Now()
 		(*result)[STAGE_READ].ok = true
@@ -117,7 +121,6 @@ func summeryRoutine(inChan <-chan [STAGE_MAX]TestResult, outChan chan<- [STAGE_M
 	var ticker *time.Ticker
 	for i := byte(0); i < STAGE_MAX; i++ {
 		ret[i].minTime = math.MaxInt64
-		ret[i].stage = (byte)(i)
 	}
 
 	if summeryIntervalSecond > 0 {
@@ -139,6 +142,7 @@ func summeryRoutine(inChan <-chan [STAGE_MAX]TestResult, outChan chan<- [STAGE_M
 				ret[i].totalSquareTime.Add(&ret[i].totalSquareTime, &bigA)
 			} else {
 				ret[i].failCount++
+				ret[i].lastError = result[i].err
 			}
 
 		}
@@ -152,7 +156,6 @@ func summeryRoutine(inChan <-chan [STAGE_MAX]TestResult, outChan chan<- [STAGE_M
 				ret = [STAGE_MAX]SummeryResult{}
 				for i := byte(0); i < STAGE_MAX; i++ {
 					ret[i].minTime = math.MaxInt64
-					ret[i].stage = (byte)(i)
 				}
 			default:
 				//
@@ -227,7 +230,6 @@ func main() {
 	wg.Add(procs)
 	resultChan := make(chan [STAGE_MAX]TestResult, 5000)
 	summeryChan := make(chan [STAGE_MAX]SummeryResult, 10)
-
 	go func() {
 		for i := 0; i < procs; i++ {
 			go func() {
@@ -251,9 +253,10 @@ func main() {
 
 		fmt.Printf("time: %s\n", duration.String())
 		for i, title := range titles {
-			fmt.Printf("%-8s count: %-10d failed: %-8d avg: %-14s min: %-14s max: %-14s stddev: %-14s\n",
+			fmt.Printf("%-8s count: %-10d failed: %-8d avg: %-14s min: %-14s max: %-14s stddev: %-14s err: %s\n",
 				title, summery[i].count, summery[i].failCount,
-				msStr(summery[i].avgTime), msStr(summery[i].minTime), msStr(summery[i].maxTime), msStr(summery[i].stddevTime))
+				msStr(summery[i].avgTime), msStr(summery[i].minTime), msStr(summery[i].maxTime), msStr(summery[i].stddevTime),
+				summery[i].lastError)
 		}
 		fmt.Println()
 	}
