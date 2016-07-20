@@ -58,26 +58,26 @@ func getColumnCount(dsn, query string) (int, error) {
 }
 
 func testOnce(dsn, query string, row []driver.Value, result *[STAGE_MAX]TestResult) {
-	result[STAGE_TOTAL].ok = false
+	(*result)[STAGE_TOTAL].ok = false
 	beforeConn := time.Now()
 	db, err := (mysql.MySQLDriver{}).Open(dsn)
 	if err != nil {
-		result[STAGE_CONN].ok = false
+		(*result)[STAGE_CONN].ok = false
 		return
 	}
-	result[STAGE_CONN].ok = true
+	(*result)[STAGE_CONN].ok = true
 	afterConn := time.Now()
-	result[STAGE_CONN].time = afterConn.Sub(beforeConn)
+	(*result)[STAGE_CONN].time = afterConn.Sub(beforeConn)
 	defer db.Close()
 
 	rows, err := db.(driver.Queryer).Query(query, []driver.Value{})
 	if err != nil {
-		result[STAGE_QUERY].ok = false
+		(*result)[STAGE_QUERY].ok = false
 		return
 	}
 	afterQuery := time.Now()
-	result[STAGE_QUERY].ok = true
-	result[STAGE_QUERY].time = afterQuery.Sub(afterConn)
+	(*result)[STAGE_QUERY].ok = true
+	(*result)[STAGE_QUERY].time = afterQuery.Sub(afterConn)
 	defer rows.Close()
 	for {
 		err = rows.Next(row)
@@ -86,13 +86,13 @@ func testOnce(dsn, query string, row []driver.Value, result *[STAGE_MAX]TestResu
 		}
 	}
 	if err != io.EOF {
-		result[STAGE_QUERY].ok = false
+		(*result)[STAGE_QUERY].ok = false
 	} else {
 		afterRead := time.Now()
-		result[STAGE_READ].ok = true
-		result[STAGE_TOTAL].ok = true
-		result[STAGE_READ].time = afterRead.Sub(afterQuery)
-		result[STAGE_TOTAL].time = afterRead.Sub(beforeConn)
+		(*result)[STAGE_READ].ok = true
+		(*result)[STAGE_TOTAL].ok = true
+		(*result)[STAGE_READ].time = afterRead.Sub(afterQuery)
+		(*result)[STAGE_TOTAL].time = afterRead.Sub(beforeConn)
 	}
 }
 
@@ -154,7 +154,7 @@ func summeryRoutine(inChan <-chan [STAGE_MAX]TestResult, outChan chan<- [STAGE_M
 					ret[i].minTime = math.MaxInt64
 					ret[i].stage = (byte)(i)
 				}
-                        default:
+			default:
 				//
 			}
 		}
@@ -250,11 +250,10 @@ func main() {
 		testBegin = testEnd
 
 		fmt.Printf("time: %s\n", duration.String())
-		//fmt.Printf("tests: %d\n", summery.count);
 		for i, title := range titles {
 			fmt.Printf("%-8s count: %-10d failed: %-8d avg: %-14s min: %-14s max: %-14s stddev: %-14s\n",
-					title, summery[i].count, summery[i].failCount, 
-					msStr(summery[i].avgTime), msStr(summery[i].minTime), msStr(summery[i].maxTime), msStr(summery[i].stddevTime))
+				title, summery[i].count, summery[i].failCount,
+				msStr(summery[i].avgTime), msStr(summery[i].minTime), msStr(summery[i].maxTime), msStr(summery[i].stddevTime))
 		}
 		fmt.Println()
 	}
