@@ -87,7 +87,7 @@ func testOnce(dsn, query string, row []driver.Value, result *[STAGE_MAX]TestResu
 			break
 		}
 	}
-	if err != io.EOF {
+	if err != nil && err != io.EOF {
 		(*result)[STAGE_READ].ok = false
 		(*result)[STAGE_TOTAL].ok = false
 		(*result)[STAGE_READ].err = err
