@@ -8,24 +8,11 @@ import (
 	"sync"
 	"runtime"
 	"flag"
-//	"database/sql"
-//  _ "github.com/go-sql-driver/mysql"
-//  _ "net/http/pprof"
-//  "net/http"
 	"math/big"
 	"math"
 	"os"
 	"io"
 )
-
-/*
-type TestResult struct {
-	connOk bool
-	queryOk bool
-	connTime time.Duration
-	queryTime time.Duration
-}*/
-
 
 const (
 	STAGE_CONN  byte = 0
@@ -41,27 +28,6 @@ type TestResult struct {
 	ok                     bool
 	time                   time.Duration
 }
-
-/*
-type SummeryResult struct {
-	count                 int64
-
-	connFailCount         int64
-	totalConnTime         time.Duration
-	totalSquareConnTime   big.Int
-	maxConnTime           time.Duration
-	minConnTime           time.Duration
-	avgConnTime           time.Duration
-	stddevConnTime        time.Duration
-
-	queryFailCount        int64
-	totalQueryTime        time.Duration
-	totalSquareQueryTime  big.Int
-	maxQueryTime          time.Duration
-	minQueryTime          time.Duration
-	avgQueryTime          time.Duration
-	stddevQueryTime       time.Duration
-}*/
 
 type SummeryResult struct {
 	stage             byte
@@ -91,12 +57,11 @@ func getColumnCount(dsn, query string) (int, error) {
 	return len(rows.Columns()), nil
 }
 
-func testOnce(dsn, query string, row []driver.Value, result [STAGE_MAX]TestResult) {
+func testOnce(dsn, query string, row []driver.Value, result *[STAGE_MAX]TestResult) {
 	result[STAGE_TOTAL].ok = false
 	beforeConn := time.Now()
 	db, err := (mysql.MySQLDriver{}).Open(dsn)
 	if err != nil {
-		//fmt.Println(err.Error())
 		result[STAGE_CONN].ok = false
 		return
 	}
@@ -107,7 +72,6 @@ func testOnce(dsn, query string, row []driver.Value, result [STAGE_MAX]TestResul
 
 	rows, err := db.(driver.Queryer).Query(query, []driver.Value{})
 	if err != nil {
-		//fmt.Println(err.Error())
 		result[STAGE_QUERY].ok = false
 		return
 	}
@@ -132,41 +96,6 @@ func testOnce(dsn, query string, row []driver.Value, result [STAGE_MAX]TestResul
 	}
 }
 
-/*
-func testOnce(dsn, query string, row []driver.Value) TestResult {
-	result := TestResult{}
-	beforeConn := time.Now()
-	db, err := (mysql.MySQLDriver{}).Open(dsn)
-	if err != nil {
-		//fmt.Println(err.Error())
-		result.connOk = false
-		return result
-	}
-	result.connOk = true
-	afterConn := time.Now()
-	result.connTime = afterConn.Sub(beforeConn)
-	defer db.Close()
-
-	rows, err := db.(driver.Queryer).Query(query, []driver.Value{})
-	if err != nil {
-		//fmt.Println(err.Error())
-		result.queryOk = false
-		return result
-	}
-	afterQuery := time.Now()
-	result.queryTime = afterQuery.Sub(afterConn)
-	result.queryOk = true
-	defer rows.Close()
-	for {
-		err = rows.Next(row)
-		if err != nil {
-			break
-		}
-	}
-	// result.queryTime = afterQuery.Sub(afterConn)
-	return result
-}*/
-
 func testRoutine(dsn, query string, n int, colNum int, outChan chan<- [STAGE_MAX]TestResult) {
 	var result [STAGE_MAX]TestResult
 	result[STAGE_CONN].stage = STAGE_CONN
@@ -176,7 +105,7 @@ func testRoutine(dsn, query string, n int, colNum int, outChan chan<- [STAGE_MAX
 
 	row := make([]driver.Value, colNum)
 	for i := 0; i < n; i++ {
-		testOnce(dsn, query, row, result)
+		testOnce(dsn, query, row, &result)
 		outChan <-result
 	}
 }
@@ -212,12 +141,21 @@ func summeryRoutine(inChan <-chan [STAGE_MAX]TestResult, outChan chan<- [STAGE_M
 				ret[i].failCount++
 			}
 
-			if summeryIntervalSecond > 0 {
-				if _, ok := <-ticker.C; ok {
+		}
+		if summeryIntervalSecond > 0 {
+			select {
+			case <-ticker.C:
+				for i := byte(0); i < STAGE_MAX; i++ {
 					ret[i].Summery()
-					outChan<-ret
-					ret = [STAGE_MAX]SummeryResult{}
 				}
+				outChan<-ret
+				ret = [STAGE_MAX]SummeryResult{}
+				for i := byte(0); i < STAGE_MAX; i++ {
+					ret[i].minTime = math.MaxInt64
+					ret[i].stage = (byte)(i)
+				}
+                        default:
+				//
 			}
 		}
 	}
@@ -250,101 +188,6 @@ func (self *SummeryResult) Summery() {
 		self.minTime = 0
 	}
 }
-
-/*
-func summeryRoutine(inChan <-chan TestResult, outChan chan<- SummeryResult, summeryIntervalSecond int) {
-	var ret   SummeryResult
-	var bigA  big.Int
-	ret.minConnTime = math.MaxInt64
-	ret.minQueryTime = math.MaxInt64
-	var ticker *time.Ticker
-	if summeryIntervalSecond > 0 {
-		summeryInterval := time.Second * time.Duration(summeryIntervalSecond)
-		ticker = time.NewTicker(summeryInterval)
-	}
-	for result := range inChan {
-		ret.count++
-		if result.connOk {
-			if result.connTime > ret.maxConnTime {
-				ret.maxConnTime = result.connTime
-			}
-			if result.connTime < ret.minConnTime {
-				ret.minConnTime = result.connTime
-			}
-			ret.totalConnTime+= result.connTime
-			bigA.SetInt64((int64)(result.connTime)).Mul(&bigA, &bigA)
-			ret.totalSquareConnTime.Add(&ret.totalSquareConnTime, &bigA)
-		} else {
-			ret.connFailCount++
-		}
-		if result.queryOk {
-			if result.queryTime > ret.maxQueryTime {
-				ret.maxQueryTime = result.queryTime
-			}
-			if result.queryTime < ret.minQueryTime {
-				ret.minQueryTime = result.queryTime
-			}
-			ret.totalQueryTime+= result.queryTime
-			bigA.SetInt64((int64)(result.queryTime)).Mul(&bigA, &bigA)
-			ret.totalSquareQueryTime.Add(&ret.totalSquareQueryTime, &bigA)
-		} else {
-			ret.queryFailCount++
-		}
-		if summeryIntervalSecond > 0 {
-			select {
-			case <-ticker.C:
-				ret.Summery()
-				outChan<-ret
-				ret = SummeryResult{}
-                        default:
-				//
-			}
-		}
-	}
-	ret.Summery()
-	outChan<-ret
-        close(outChan)
-	return
-}
-
-func (self *SummeryResult) Summery() {
-	var bigA, big2 big.Int
-	var bigR1, bigR2, big1N, big1N1 big.Rat
-	big2.SetInt64(2)
-	//  ∑(i-miu)2 = ∑(i2)-(∑i)2/n
-	n := self.count - self.connFailCount
-	if n > 1 {
-		self.avgConnTime = (time.Duration)((int64)(self.totalConnTime) / n)
-
-		big1N.SetInt64(n).Inv(&big1N) // 1/n
-		big1N1.SetInt64(n-1).Inv(&big1N1) // 1/(n-1)
-		bigA.SetInt64((int64)(self.totalConnTime)).Mul(&bigA, &bigA) // (∑i)2
-		bigR1.SetInt(&bigA).Mul(&bigR1, &big1N) // (∑i)2/n
-		bigR2.SetInt(&self.totalSquareConnTime).Sub(&bigR2, &bigR1)
-		s2, _ := bigR2.Mul(&bigR2, &big1N1).Float64()
-		self.stddevConnTime = (time.Duration)((int64)(math.Sqrt(s2)))
-	}
-
-	n = self.count - self.queryFailCount
-	if n > 1 {
-		self.avgQueryTime = (time.Duration)((int64)(self.totalQueryTime) / n)
-
-		big1N.SetInt64(n).Inv(&big1N) // 1/n
-		big1N1.SetInt64(n-1).Inv(&big1N1) // 1/(n-1)
-		bigA.SetInt64((int64)(self.totalQueryTime)).Mul(&bigA, &bigA) // (∑i)2
-		bigR1.SetInt(&bigA).Mul(&bigR1, &big1N) // (∑i)2/n
-		bigR2.SetInt(&self.totalSquareQueryTime).Sub(&bigR2, &bigR1)
-		s2, _ := bigR2.Mul(&bigR2, &big1N1).Float64()
-		self.stddevQueryTime = (time.Duration)((int64)(math.Sqrt(s2)))
-	}
-
-	if self.minConnTime == math.MaxInt64 {
-		self.minConnTime = 0
-	}
-	if self.minQueryTime == math.MaxInt64 {
-		self.minQueryTime = 0
-	}
-}*/
 
 func msStr(t time.Duration) string {
 	return fmt.Sprintf("%0.3f ms", float64(int64(t) / 1000) / 1000.0)
@@ -409,32 +252,11 @@ func main() {
 		fmt.Printf("time: %s\n", duration.String())
 		//fmt.Printf("tests: %d\n", summery.count);
 		for i, title := range titles {
-			fmt.Println(title)
-			fmt.Printf("count: %d\n", summery[i].count);
-			fmt.Printf("failed: %d\n", summery[i].failCount);
-			fmt.Printf("avg time: %s\n", msStr(summery[i].avgTime))
-			fmt.Printf("min time: %s\n", msStr(summery[i].minTime))
-			fmt.Printf("max time: %s\n", msStr(summery[i].maxTime))
-			fmt.Printf("stddev time: %s\n", msStr(summery[i].stddevTime))
+			fmt.Printf("%-8s count: %-10d failed: %-8d avg: %-14s min: %-14s max: %-14s stddev: %-14s\n",
+					title, summery[i].count, summery[i].failCount, 
+					msStr(summery[i].avgTime), msStr(summery[i].minTime), msStr(summery[i].maxTime), msStr(summery[i].stddevTime))
 		}
-		/*
-		fmt.Println("connect time")
-		fmt.Printf("failed: %d\n", summery.connFailCount);
-		fmt.Printf("avg: %s\n", msStr(summery.avgConnTime))
-		fmt.Printf("min: %s\n", msStr(summery.minConnTime))
-		fmt.Printf("max: %s\n", msStr(summery.maxConnTime))
-		fmt.Printf("stddev: %s\n", msStr(summery.stddevConnTime))
-
 		fmt.Println()
-		fmt.Println("query time")
-		fmt.Printf("failed: %d\n", summery.queryFailCount);
-		fmt.Printf("avg: %s\n", msStr(summery.avgQueryTime))
-		fmt.Printf("min: %s\n", msStr(summery.minQueryTime))
-		fmt.Printf("max: %s\n", msStr(summery.maxQueryTime))
-		fmt.Printf("stddev: %s\n", msStr(summery.stddevQueryTime))
-		fmt.Println()
-		*/
 	}
-
 }
 
