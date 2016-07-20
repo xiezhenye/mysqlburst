@@ -253,10 +253,14 @@ func main() {
 
 		fmt.Printf("time: %s\n", duration.String())
 		for i, title := range titles {
+			errStr := "-"
+			if summery[i].lastError != nil {
+				errStr = summery[i].lastError.Error()
+			}
 			fmt.Printf("%-8s count: %-10d failed: %-8d avg: %-14s min: %-14s max: %-14s stddev: %-14s err: %s\n",
 				title, summery[i].count, summery[i].failCount,
 				msStr(summery[i].avgTime), msStr(summery[i].minTime), msStr(summery[i].maxTime), msStr(summery[i].stddevTime),
-				summery[i].lastError)
+				errStr)
 		}
 		fmt.Println()
 	}
