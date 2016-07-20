@@ -225,6 +225,7 @@ func summeryRoutine(inChan <-chan [STAGE_MAX]TestResult, outChan chan<- [STAGE_M
 		ret[i].Summery()
 	}
 	outChan<-ret
+	close(outChan)
 	return
 }
 
