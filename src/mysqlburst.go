@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 	"sync"
+	"sync/atomic"
 	"runtime"
 	"flag"
 	"math/big"
@@ -200,26 +201,50 @@ type NullLogger struct{}
 func (*NullLogger) Print(v ...interface{}) {
 }
 
+type SaveLastLogger struct {
+	last atomic.Value
+}
+
+func (self *SaveLastLogger) Print(v ...interface{}) {
+	self.last.Store(v)	
+}
+
+func (self *SaveLastLogger) GetLast() []interface{} {
+	ret := self.last.Load()
+	if ret == nil {
+		return nil
+	} else {
+		return ret.([]interface{})
+	}
+}
+
+func (self *SaveLastLogger) Clean() {
+	self.last.Store(nil)
+}
+
+
 // mysqlburst -c 2000 -r 30 -d 'mha:M616VoUJBnYFi0L02Y24@tcp(10.200.180.54:3342)/x?timeout=5s&readTimeout=3s&writeTimeout=3s'
 func main() {
 	runtime.GOMAXPROCS(runtime.NumCPU())
 	//go func() {
 	//      http.ListenAndServe("localhost:6060", nil)
 	//}()
-
+	//driver.ErrBadConn = errors.New(driver.ErrBadConn)
 	procs := 0
 	rounds := 0
 	dsn := ""
 	query := ""
+	verbose := false
 	summeryIntervalSec := 0
 	flag.IntVar(&procs, "c", 1000, "concurrency")
 	flag.IntVar(&rounds, "r", 100, "rounds")
 	flag.StringVar(&dsn, "d", "mysql:@tcp(127.0.0.1:3306)/mysql?timeout=5s&readTimeout=5s&writeTimeout=5s", "dsn")
 	flag.StringVar(&query, "q", "select 1", "sql")
 	flag.IntVar(&summeryIntervalSec, "i", 0, "summery interval (sec)")
+	flag.BoolVar(&verbose, "v", false, "verbose")
 	flag.Parse()
-
-	mysql.SetLogger(&NullLogger{})
+	mysqlLogger := &SaveLastLogger{}
+	mysql.SetLogger(mysqlLogger)
 
 	colNum, err := getColumnCount(dsn, query)
 	if err != nil {
@@ -254,8 +279,13 @@ func main() {
 		fmt.Printf("time: %s\n", duration.String())
 		for i, title := range titles {
 			errStr := "-"
-			if summery[i].lastError != nil {
-				errStr = summery[i].lastError.Error()
+			lastErr := summery[i].lastError
+			if lastErr != nil {
+				errStr = lastErr.Error()
+                                if verbose {
+                                	errStr+= " " + fmt.Sprintf("%v", mysqlLogger.GetLast())
+                                }
+				mysqlLogger.Clean()
 			}
 			fmt.Printf("%-8s count: %-10d failed: %-8d avg: %-14s min: %-14s max: %-14s stddev: %-14s err: %s\n",
 				title, summery[i].count, summery[i].failCount,
