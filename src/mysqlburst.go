@@ -6,12 +6,10 @@ import (
 	"fmt"
 	"time"
 	"sync"
-	"sync/atomic"
 	"runtime"
 	"flag"
 	"math/big"
 	"math"
-	"os"
 	"io"
 )
 
@@ -58,7 +56,7 @@ func getColumnCount(dsn, query string) (int, error) {
 	return len(rows.Columns()), nil
 }
 
-func testOnce(dsn, query string, row []driver.Value, result *[STAGE_MAX]TestResult) {
+func testOnce(dsn string, queries []string, result *[STAGE_MAX]TestResult) {
 	for i := byte(0); i < STAGE_MAX; i++ {
 		(*result)[i].ok = false
 	}
@@ -72,43 +70,45 @@ func testOnce(dsn, query string, row []driver.Value, result *[STAGE_MAX]TestResu
 	afterConn := time.Now()
 	(*result)[STAGE_CONN].time = afterConn.Sub(beforeConn)
 	defer db.Close()
-
-	rows, err := db.(driver.Queryer).Query(query, []driver.Value{})
-	if err != nil {
-		(*result)[STAGE_QUERY].err = err
-		return
-	}
-	afterQuery := time.Now()
-	(*result)[STAGE_QUERY].ok = true
-	(*result)[STAGE_QUERY].time = afterQuery.Sub(afterConn)
-	defer rows.Close()
-	for {
-		err = rows.Next(row)
+	afterRead := afterConn
+	(*result)[STAGE_QUERY].time = 0
+	(*result)[STAGE_READ].time = 0
+	for _, query := range queries {
+		beforeQuery := time.Now()
+		rows, err := db.(driver.Queryer).Query(query, []driver.Value{})
 		if err != nil {
-			break
+			(*result)[STAGE_QUERY].err = err
+			(*result)[STAGE_QUERY].ok = false
+			return
 		}
-	}
-	if err != nil && err != io.EOF {
-		(*result)[STAGE_READ].err = err
-	} else {
-		afterRead := time.Now()
+
+		afterQuery := time.Now()
+		(*result)[STAGE_QUERY].ok = true
+		(*result)[STAGE_QUERY].time += afterQuery.Sub(beforeQuery)
+
+		err = rows.Close() // Close() will read all rows
+		if err != nil && err != io.EOF {
+			(*result)[STAGE_READ].err = err
+			(*result)[STAGE_READ].ok = false
+			return
+		}
+		afterRead = time.Now()
 		(*result)[STAGE_READ].ok = true
-		(*result)[STAGE_TOTAL].ok = true
-		(*result)[STAGE_READ].time = afterRead.Sub(afterQuery)
-		(*result)[STAGE_TOTAL].time = afterRead.Sub(beforeConn)
+		(*result)[STAGE_READ].time += afterRead.Sub(afterQuery)
 	}
+	(*result)[STAGE_TOTAL].ok = true
+	(*result)[STAGE_TOTAL].time = afterRead.Sub(beforeConn)
 }
 
-func testRoutine(dsn, query string, n int, colNum int, outChan chan<- [STAGE_MAX]TestResult) {
+func testRoutine(dsn string, queries []string, n int, outChan chan<- [STAGE_MAX]TestResult) {
 	var result [STAGE_MAX]TestResult
 	result[STAGE_CONN].stage = STAGE_CONN
 	result[STAGE_QUERY].stage = STAGE_QUERY
 	result[STAGE_READ].stage = STAGE_READ
 	result[STAGE_TOTAL].stage = STAGE_TOTAL
 
-	row := make([]driver.Value, colNum)
 	for i := 0; i < n; i++ {
-		testOnce(dsn, query, row, &result)
+		testOnce(dsn, queries, &result)
 		outChan <-result
 	}
 }
@@ -201,27 +201,14 @@ type NullLogger struct{}
 func (*NullLogger) Print(v ...interface{}) {
 }
 
-type SaveLastLogger struct {
-	last atomic.Value
+type arrayFlags []string
+func (self *arrayFlags) String() string {
+	return fmt.Sprintf("%v", *self)
 }
-
-func (self *SaveLastLogger) Print(v ...interface{}) {
-	self.last.Store(v)	
+func (self *arrayFlags) Set(value string) error {
+	*self = append(*self, value)
+	return nil
 }
-
-func (self *SaveLastLogger) GetLast() []interface{} {
-	ret := self.last.Load()
-	if ret == nil {
-		return nil
-	} else {
-		return ret.([]interface{})
-	}
-}
-
-func (self *SaveLastLogger) Clean() {
-	self.last.Store(nil)
-}
-
 
 // mysqlburst -c 2000 -r 30 -d 'mha:M616VoUJBnYFi0L02Y24@tcp(10.200.180.54:3342)/x?timeout=5s&readTimeout=3s&writeTimeout=3s'
 func main() {
@@ -233,24 +220,19 @@ func main() {
 	procs := 0
 	rounds := 0
 	dsn := ""
-	query := ""
-	verbose := false
+	//query := ""
+	var queries arrayFlags
 	summeryIntervalSec := 0
 	flag.IntVar(&procs, "c", 1000, "concurrency")
 	flag.IntVar(&rounds, "r", 100, "rounds")
 	flag.StringVar(&dsn, "d", "mysql:@tcp(127.0.0.1:3306)/mysql?timeout=5s&readTimeout=5s&writeTimeout=5s", "dsn")
-	flag.StringVar(&query, "q", "select 1", "sql")
+	//flag.StringVar(&query, "q", "select 1", "sql")
+	flag.Var(&queries, "q", "queries")
 	flag.IntVar(&summeryIntervalSec, "i", 0, "summery interval (sec)")
-	flag.BoolVar(&verbose, "v", false, "verbose")
 	flag.Parse()
-	mysqlLogger := &SaveLastLogger{}
-	mysql.SetLogger(mysqlLogger)
 
-	colNum, err := getColumnCount(dsn, query)
-	if err != nil {
-		fmt.Printf("init failed: %s", err)
-		os.Exit(2)
-	}
+	mysql.SetLogger(&NullLogger{})
+
 	wg := sync.WaitGroup{}
 	wg.Add(procs)
 	resultChan := make(chan [STAGE_MAX]TestResult, 5000)
@@ -258,7 +240,7 @@ func main() {
 	go func() {
 		for i := 0; i < procs; i++ {
 			go func() {
-				testRoutine(dsn, query, rounds, colNum, resultChan)
+				testRoutine(dsn, queries, rounds, resultChan)
 				wg.Done()
 			}()
 		}
@@ -282,10 +264,6 @@ func main() {
 			lastErr := summery[i].lastError
 			if lastErr != nil {
 				errStr = lastErr.Error()
-                                if verbose {
-                                	errStr+= " " + fmt.Sprintf("%v", mysqlLogger.GetLast())
-                                }
-				mysqlLogger.Clean()
 			}
 			fmt.Printf("%-8s count: %-10d failed: %-8d avg: %-14s min: %-14s max: %-14s stddev: %-14s err: %s\n",
 				title, summery[i].count, summery[i].failCount,
@@ -295,4 +273,5 @@ func main() {
 		fmt.Println()
 	}
 }
+
 
