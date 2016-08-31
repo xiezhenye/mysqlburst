@@ -262,7 +262,7 @@ func main() {
 		duration:= testEnd.Sub(testBegin)
 		testBegin = testEnd
 
-		fmt.Printf("time: %s\n", duration.String())
+		fmt.Printf("time: %s\n", msStr(duration))
 		for i, title := range titles {
 			errStr := "-"
 			lastErr := summery[i].lastError
