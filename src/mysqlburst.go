@@ -113,10 +113,31 @@ func testRoutine(dsn string, queries []string, n int, outChan chan<- [STAGE_MAX]
 	}
 }
 
+func collectInto(result *[STAGE_MAX]TestResult, ret *[STAGE_MAX]SummeryResult) {
+	var bigA  big.Int
+	for i := byte(0); i < STAGE_MAX; i++ {
+		ret[i].count++
+		if result[i].ok {
+			if result[i].time > ret[i].maxTime {
+				ret[i].maxTime = result[i].time
+			}
+			if result[i].time < ret[i].minTime {
+				ret[i].minTime = result[i].time
+			}
+			ret[i].totalTime+= result[i].time
+			bigA.SetInt64((int64)(result[i].time)).Mul(&bigA, &bigA)
+			ret[i].totalSquareTime.Add(&ret[i].totalSquareTime, &bigA)
+		} else {
+			ret[i].failCount++
+			if result[i].err != nil {
+				ret[i].lastError = result[i].err
+			}
+		}
+	}
+}
 
 func summeryRoutine(inChan <-chan [STAGE_MAX]TestResult, outChan chan<- [STAGE_MAX]SummeryResult, summeryIntervalSecond int) {
 	var ret   [STAGE_MAX]SummeryResult
-	var bigA  big.Int
 	var ticker *time.Ticker
 	for i := byte(0); i < STAGE_MAX; i++ {
 		ret[i].minTime = math.MaxInt64
@@ -125,30 +146,13 @@ func summeryRoutine(inChan <-chan [STAGE_MAX]TestResult, outChan chan<- [STAGE_M
 	if summeryIntervalSecond > 0 {
 		summeryInterval := time.Second * time.Duration(summeryIntervalSecond)
 		ticker = time.NewTicker(summeryInterval)
-	}
-	for result := range inChan {
-		for i := byte(0); i < STAGE_MAX; i++ {
-			ret[i].count++
-			if result[i].ok {
-				if result[i].time > ret[i].maxTime {
-					ret[i].maxTime = result[i].time
-				}
-				if result[i].time < ret[i].minTime {
-					ret[i].minTime = result[i].time
-				}
-				ret[i].totalTime+= result[i].time
-				bigA.SetInt64((int64)(result[i].time)).Mul(&bigA, &bigA)
-				ret[i].totalSquareTime.Add(&ret[i].totalSquareTime, &bigA)
-			} else {
-				ret[i].failCount++
-				if result[i].err != nil {
-					ret[i].lastError = result[i].err
-				}
-			}
-
-		}
-		if summeryIntervalSecond > 0 {
+		for {
 			select {
+			case result, ok := <-inChan:
+				if !ok {
+					break;
+				}
+				collectInto(&result, &ret)
 			case <-ticker.C:
 				for i := byte(0); i < STAGE_MAX; i++ {
 					ret[i].Summery()
@@ -158,11 +162,13 @@ func summeryRoutine(inChan <-chan [STAGE_MAX]TestResult, outChan chan<- [STAGE_M
 				for i := byte(0); i < STAGE_MAX; i++ {
 					ret[i].minTime = math.MaxInt64
 				}
-			default:
-				//
 			}
 		}
-	}
+	} else {
+		for result := range inChan {
+			collectInto(&result, &ret)
+		}
+	}	
 	for i := byte(0); i < STAGE_MAX; i++ {
 		ret[i].Summery()
 	}
@@ -220,13 +226,11 @@ func main() {
 	procs := 0
 	rounds := 0
 	dsn := ""
-	//query := ""
 	var queries arrayFlags
 	summeryIntervalSec := 0
 	flag.IntVar(&procs, "c", 1000, "concurrency")
 	flag.IntVar(&rounds, "r", 100, "rounds")
 	flag.StringVar(&dsn, "d", "mysql:@tcp(127.0.0.1:3306)/mysql?timeout=5s&readTimeout=5s&writeTimeout=5s", "dsn")
-	//flag.StringVar(&query, "q", "select 1", "sql")
 	flag.Var(&queries, "q", "queries")
 	flag.IntVar(&summeryIntervalSec, "i", 0, "summery interval (sec)")
 	flag.Parse()
