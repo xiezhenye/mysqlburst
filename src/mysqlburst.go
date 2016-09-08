@@ -146,11 +146,12 @@ func summeryRoutine(inChan <-chan [STAGE_MAX]TestResult, outChan chan<- [STAGE_M
 	if summeryIntervalSecond > 0 {
 		summeryInterval := time.Second * time.Duration(summeryIntervalSecond)
 		ticker = time.NewTicker(summeryInterval)
+		loop:
 		for {
 			select {
 			case result, ok := <-inChan:
 				if !ok {
-					break;
+					break loop;
 				}
 				collectInto(&result, &ret)
 			case <-ticker.C:
