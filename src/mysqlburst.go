@@ -227,17 +227,19 @@ func main() {
 	procs := 0
 	rounds := 0
 	dsn := ""
+	driverLog := false
 	var queries arrayFlags
 	summeryIntervalSec := 0
 	flag.IntVar(&procs, "c", 1000, "concurrency")
 	flag.IntVar(&rounds, "r", 100, "rounds")
 	flag.StringVar(&dsn, "d", "mysql:@tcp(127.0.0.1:3306)/mysql?timeout=5s&readTimeout=5s&writeTimeout=5s", "dsn")
 	flag.Var(&queries, "q", "queries")
+	flag.BoolVar(&driverLog, "l", false, "enable driver log, will be written to stderr")
 	flag.IntVar(&summeryIntervalSec, "i", 0, "summery interval (sec)")
 	flag.Parse()
-
-	mysql.SetLogger(&NullLogger{})
-
+	if !driverLog {
+		mysql.SetLogger(&NullLogger{})
+	}
 	wg := sync.WaitGroup{}
 	wg.Add(procs)
 	resultChan := make(chan [STAGE_MAX]TestResult, 5000)
