@@ -41,20 +41,6 @@ type SummeryResult struct {
 	lastError         error
 }
 
-func getColumnCount(dsn, query string) (int, error) {
-	db, err := (mysql.MySQLDriver{}).Open(dsn)
-	if err != nil {
-		return 0, err
-	}
-	defer db.Close()
-
-	rows, err := db.(driver.Queryer).Query(query, []driver.Value{})
-	if err != nil {
-		return 0, err
-	}
-	defer rows.Close()
-	return len(rows.Columns()), nil
-}
 
 func testOnce(dsn string, queries []string, result *[STAGE_MAX]TestResult) {
 	for i := byte(0); i < STAGE_MAX; i++ {
