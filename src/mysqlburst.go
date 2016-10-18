@@ -30,17 +30,36 @@ type TestResult struct {
 }
 
 type SummeryResult struct {
-	count             int64
-	failCount         int64
-	totalTime         time.Duration
-	totalSquareTime   big.Int
-	maxTime           time.Duration
-	minTime           time.Duration
-	avgTime           time.Duration
-	stddevTime        time.Duration
-	lastError         error
+	count           int64
+	failCount       int64
+	totalTime       time.Duration
+	totalSquareTime big.Int
+	maxTime         time.Duration
+	minTime         time.Duration
+	avgTime         time.Duration
+	stddevTime      time.Duration
+	lastError       error
 }
 
+type SummerySet struct {
+	startTime       time.Time
+	endTime         time.Time
+	summery         [STAGE_MAX]SummeryResult
+}
+
+func (self *SummerySet) Init() {
+	for i := byte(0); i < STAGE_MAX; i++ {
+		self.summery[i].minTime = math.MaxInt64
+	}
+	self.startTime = time.Now()
+}
+
+func (self *SummerySet) Summery() {
+	self.endTime = time.Now()
+	for i := byte(0); i < STAGE_MAX; i++ {
+		self.summery[i].Summery()
+	}
+}
 
 func testOnce(dsn string, queries []string, result *[STAGE_MAX]TestResult) {
 	for i := byte(0); i < STAGE_MAX; i++ {
@@ -99,35 +118,34 @@ func testRoutine(dsn string, queries []string, n int, outChan chan<- [STAGE_MAX]
 	}
 }
 
-func collectInto(result *[STAGE_MAX]TestResult, ret *[STAGE_MAX]SummeryResult) {
+func collectInto(result *[STAGE_MAX]TestResult, ret *SummerySet) {
 	var bigA  big.Int
 	for i := byte(0); i < STAGE_MAX; i++ {
-		ret[i].count++
+		summery := &(ret.summery[i])
+		summery.count++
 		if result[i].ok {
-			if result[i].time > ret[i].maxTime {
-				ret[i].maxTime = result[i].time
+			if result[i].time > summery.maxTime {
+				summery.maxTime = result[i].time
 			}
-			if result[i].time < ret[i].minTime {
-				ret[i].minTime = result[i].time
+			if result[i].time < summery.minTime {
+				summery.minTime = result[i].time
 			}
-			ret[i].totalTime+= result[i].time
+			summery.totalTime+= result[i].time
 			bigA.SetInt64((int64)(result[i].time)).Mul(&bigA, &bigA)
-			ret[i].totalSquareTime.Add(&ret[i].totalSquareTime, &bigA)
+			summery.totalSquareTime.Add(&(summery.totalSquareTime), &bigA)
 		} else {
-			ret[i].failCount++
+			summery.failCount++
 			if result[i].err != nil {
-				ret[i].lastError = result[i].err
+				summery.lastError = result[i].err
 			}
 		}
 	}
 }
 
-func summeryRoutine(inChan <-chan [STAGE_MAX]TestResult, outChan chan<- [STAGE_MAX]SummeryResult, summeryIntervalSecond int) {
-	var ret   [STAGE_MAX]SummeryResult
+func summeryRoutine(inChan <-chan [STAGE_MAX]TestResult, outChan chan<- SummerySet, summeryIntervalSecond int) {
+	var ret   SummerySet
 	var ticker *time.Ticker
-	for i := byte(0); i < STAGE_MAX; i++ {
-		ret[i].minTime = math.MaxInt64
-	}
+	ret.Init()
 
 	if summeryIntervalSecond > 0 {
 		summeryInterval := time.Second * time.Duration(summeryIntervalSecond)
@@ -141,24 +159,18 @@ func summeryRoutine(inChan <-chan [STAGE_MAX]TestResult, outChan chan<- [STAGE_M
 				}
 				collectInto(&result, &ret)
 			case <-ticker.C:
-				for i := byte(0); i < STAGE_MAX; i++ {
-					ret[i].Summery()
-				}
+				ret.Summery()
 				outChan<-ret
-				ret = [STAGE_MAX]SummeryResult{}
-				for i := byte(0); i < STAGE_MAX; i++ {
-					ret[i].minTime = math.MaxInt64
-				}
+				ret = SummerySet{}
+				ret.Init()
 			}
 		}
 	} else {
 		for result := range inChan {
 			collectInto(&result, &ret)
 		}
-	}	
-	for i := byte(0); i < STAGE_MAX; i++ {
-		ret[i].Summery()
 	}
+	ret.Summery()
 	outChan<-ret
 	close(outChan)
 	return
@@ -228,8 +240,8 @@ func main() {
 	}
 	wg := sync.WaitGroup{}
 	wg.Add(procs)
-	resultChan := make(chan [STAGE_MAX]TestResult, 5000)
-	summeryChan := make(chan [STAGE_MAX]SummeryResult, 10)
+	resultChan := make(chan [STAGE_MAX]TestResult, procs * 8)
+	summeryChan := make(chan SummerySet, 16)
 	go func() {
 		for i := 0; i < procs; i++ {
 			go func() {
@@ -242,25 +254,21 @@ func main() {
 	}()
 	go summeryRoutine(resultChan, summeryChan, summeryIntervalSec)
 
-	testBegin := time.Now()
 	titles := [STAGE_MAX]string{
 		"connect", "query", "read", "total",
 	}
-	for summery := range summeryChan {
-		testEnd := time.Now()
-		duration:= testEnd.Sub(testBegin)
-		testBegin = testEnd
-
-		fmt.Printf("time: %s\n", msStr(duration))
+	for set := range summeryChan {
+		fmt.Printf("time: %s\n", msStr(set.endTime.Sub(set.startTime)))
 		for i, title := range titles {
+			summery := set.summery[i]
 			errStr := "-"
-			lastErr := summery[i].lastError
+			lastErr := summery.lastError
 			if lastErr != nil {
 				errStr = lastErr.Error()
 			}
 			fmt.Printf("%-8s count: %-10d failed: %-8d avg: %-14s min: %-14s max: %-14s stddev: %-14s err: %s\n",
-				title, summery[i].count, summery[i].failCount,
-				msStr(summery[i].avgTime), msStr(summery[i].minTime), msStr(summery[i].maxTime), msStr(summery[i].stddevTime),
+				title, summery.count, summery.failCount,
+				msStr(summery.avgTime), msStr(summery.minTime), msStr(summery.maxTime), msStr(summery.stddevTime),
 				errStr)
 		}
 		fmt.Println()
