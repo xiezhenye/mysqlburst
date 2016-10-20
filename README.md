@@ -1,5 +1,5 @@
 # mysqlburst
-A mysql pressure test tool that makes large quantity of connections
+A mysql pressure test tool that makes large quantity of short connections
 
 # usage
       
@@ -50,3 +50,7 @@ output may likes this:
       query    count: 29450      failed: 0        avg: 0.366 ms       min: 0.173 ms       max: 11.494 ms      stddev: 0.318 ms       err: -
       read     count: 29450      failed: 0        avg: 0.000 ms       min: 0.000 ms       max: 0.391 ms       stddev: 0.002 ms       err: -
       total    count: 29450      failed: 0        avg: 6.757 ms       min: 5.078 ms       max: 18.752 ms      stddev: 0.769 ms       err: -
+
+
+param `-q` can be applied more than one times to send more queries in a connection.
+
