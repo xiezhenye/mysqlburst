@@ -239,9 +239,15 @@ func main() {
 		InterpolateParams: true,
 		MaxPacketAllowed: 16777216,
 	}
+	flag.Usage = func() {
+		fmt.Fprintf(os.Stderr, "Usage of %s: [options]\n", os.Args[0])
+		fmt.Fprintln(os.Stderr, "  e.g. ./mysqlburst -c 100 -r 1000 -a 127.0.0.1:3306 -d mysql -u user -p pswd -q 'select * from user limit 1' -i 1")
+		fmt.Fprintln(os.Stderr)
+		flag.PrintDefaults()
+	}
 	// user_test:test@tcp(10.215.20.22:4006)/test?timeout=100ms&readTimeout=2s&writeTimeout=2s&interpolateParams=true&maxPacketAllowed=16777216
-	flag.IntVar(&procs, "c", 1000, "concurrency")
-	flag.IntVar(&rounds, "r", 100, "rounds")
+	flag.IntVar(&procs, "c", 100, "concurrency")
+	flag.IntVar(&rounds, "r", 1000, "rounds")
 	//flag.StringVar(&dsn, "d", "mysql:@tcp(127.0.0.1:3306)/mysql?timeout=5s&readTimeout=5s&writeTimeout=5s", "dsn")
 	flag.StringVar(&myCfg.Addr, "a", "127.0.0.1:3306", "mysql server address")
 	flag.StringVar(&myCfg.User, "u", "root", "user")
