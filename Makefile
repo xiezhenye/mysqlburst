@@ -5,7 +5,7 @@ pwd=$(shell pwd)
 all : mysqlburst
 
 driver:
-	GOPATH=$(pwd) go get github.com/go-sql-driver/mysql
+	GOPATH=$(pwd) go get github.com/xiezhenye/go-sql-driver-mysql
 
 mysqlburst: driver
 	GOPATH=$(pwd) go build src/mysqlburst.go

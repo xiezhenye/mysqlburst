@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/go-sql-driver/mysql"
+	"github.com/xiezhenye/go-sql-driver-mysql"
 	"database/sql/driver"
 	"fmt"
 	"time"
