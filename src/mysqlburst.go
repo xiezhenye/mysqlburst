@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/xiezhenye/go-sql-driver-mysql"
+	mysql "github.com/xiezhenye/go-sql-driver-mysql"
 	"database/sql/driver"
 	"fmt"
 	"time"
@@ -11,6 +11,7 @@ import (
 	"math/big"
 	"math"
 	"io"
+	"os"
 )
 
 const (
@@ -215,6 +216,11 @@ func (self *arrayFlags) Set(value string) error {
 	return nil
 }
 
+func badArg() {
+	flag.Usage()
+	os.Exit(1)
+}
+
 // mysqlburst -c 2000 -r 30 -d 'mha:M616VoUJBnYFi0L02Y24@tcp(10.200.180.54:3342)/x?timeout=5s&readTimeout=3s&writeTimeout=3s'
 func main() {
 	runtime.GOMAXPROCS(runtime.NumCPU())
@@ -228,16 +234,35 @@ func main() {
 	driverLog := false
 	var queries arrayFlags
 	summeryIntervalSec := 0
+	myCfg := mysql.Config{
+		Net: "tcp",
+		InterpolateParams: true,
+		MaxPacketAllowed: 16777216,
+	}
+	// user_test:test@tcp(10.215.20.22:4006)/test?timeout=100ms&readTimeout=2s&writeTimeout=2s&interpolateParams=true&maxPacketAllowed=16777216
 	flag.IntVar(&procs, "c", 1000, "concurrency")
 	flag.IntVar(&rounds, "r", 100, "rounds")
-	flag.StringVar(&dsn, "d", "mysql:@tcp(127.0.0.1:3306)/mysql?timeout=5s&readTimeout=5s&writeTimeout=5s", "dsn")
+	//flag.StringVar(&dsn, "d", "mysql:@tcp(127.0.0.1:3306)/mysql?timeout=5s&readTimeout=5s&writeTimeout=5s", "dsn")
+	flag.StringVar(&myCfg.Addr, "a", "127.0.0.1:3306", "mysql server address")
+	flag.StringVar(&myCfg.User, "u", "root", "user")
+	flag.StringVar(&myCfg.Passwd, "p", "", "password")
+	flag.StringVar(&myCfg.DBName, "d", "mysql", "database")
+	flag.DurationVar(&myCfg.Timeout, "cto", 1 * time.Second, "connect timeout")
+	flag.DurationVar(&myCfg.ReadTimeout, "rto", 5 * time.Second, "read timeout")
+	flag.DurationVar(&myCfg.WriteTimeout, "wto", 5 * time.Second, "write timeout")
 	flag.Var(&queries, "q", "queries")
 	flag.BoolVar(&driverLog, "l", false, "enable driver log, will be written to stderr")
 	flag.IntVar(&summeryIntervalSec, "i", 0, "summery interval (sec)")
 	flag.Parse()
+
 	if !driverLog {
 		mysql.SetLogger(&NullLogger{})
 	}
+	if len(queries) == 0 {
+		badArg()
+		return
+	}
+	dsn = myCfg.FormatDSN()
 	wg := sync.WaitGroup{}
 	wg.Add(procs)
 	resultChan := make(chan [STAGE_MAX]TestResult, procs * 8)
