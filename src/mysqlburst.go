@@ -237,7 +237,7 @@ func main() {
 	myCfg := mysql.Config{
 		Net: "tcp",
 		InterpolateParams: true,
-		MaxPacketAllowed: 16777216,
+		MaxAllowedPacket: 16777216,
 	}
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage of %s:\n", os.Args[0])
@@ -248,7 +248,6 @@ func main() {
 	// user_test:test@tcp(10.215.20.22:4006)/test?timeout=100ms&readTimeout=2s&writeTimeout=2s&interpolateParams=true&maxPacketAllowed=16777216
 	flag.IntVar(&procs, "c", 100, "concurrency")
 	flag.IntVar(&rounds, "r", 1000, "rounds")
-	//flag.StringVar(&dsn, "d", "mysql:@tcp(127.0.0.1:3306)/mysql?timeout=5s&readTimeout=5s&writeTimeout=5s", "dsn")
 	flag.StringVar(&myCfg.Addr, "a", "127.0.0.1:3306", "mysql server address")
 	flag.StringVar(&myCfg.User, "u", "root", "user")
 	flag.StringVar(&myCfg.Passwd, "p", "", "password")

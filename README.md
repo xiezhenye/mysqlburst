@@ -52,5 +52,5 @@ output may likes this:
       total    count: 29450      failed: 0        avg: 6.757 ms       min: 5.078 ms       max: 18.752 ms      stddev: 0.769 ms       err: -
 
 
-param `-q` can be applied more than one times to send more queries in a connection.
+param `-q` can be applied more than one times to send multi queries in a connection.
 
