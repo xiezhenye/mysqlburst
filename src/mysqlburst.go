@@ -115,14 +115,14 @@ func testRoutine(dsn string, queries []string, n int, outChan chan<- [STAGE_MAX]
 	result[STAGE_TOTAL].stage = STAGE_TOTAL
 
 	for i := 0; i < n; i++ {
-		testOnce(dsn, queries, &result)
-		outChan <-result
 		if rate > 0 {
 			d := time.Duration(rand.ExpFloat64() * float64(time.Second) / rate)
 			if result[STAGE_TOTAL].time < d {
 				time.Sleep(d - result[STAGE_TOTAL].time)
 			}
 		}
+		testOnce(dsn, queries, &result)
+		outChan <-result
 	}
 }
 
