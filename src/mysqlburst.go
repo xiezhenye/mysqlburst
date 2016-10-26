@@ -12,6 +12,7 @@ import (
 	"math"
 	"io"
 	"os"
+	"math/rand"
 )
 
 const (
@@ -106,7 +107,7 @@ func testOnce(dsn string, queries []string, result *[STAGE_MAX]TestResult) {
 	(*result)[STAGE_TOTAL].time = afterRead.Sub(beforeConn)
 }
 
-func testRoutine(dsn string, queries []string, n int, outChan chan<- [STAGE_MAX]TestResult) {
+func testRoutine(dsn string, queries []string, n int, outChan chan<- [STAGE_MAX]TestResult, rate float64) {
 	var result [STAGE_MAX]TestResult
 	result[STAGE_CONN].stage = STAGE_CONN
 	result[STAGE_QUERY].stage = STAGE_QUERY
@@ -116,6 +117,12 @@ func testRoutine(dsn string, queries []string, n int, outChan chan<- [STAGE_MAX]
 	for i := 0; i < n; i++ {
 		testOnce(dsn, queries, &result)
 		outChan <-result
+		if rate > 0 {
+			d := time.Duration(rand.ExpFloat64() * float64(time.Second) / rate)
+			if result[STAGE_TOTAL].time < d {
+				time.Sleep(d - result[STAGE_TOTAL].time)
+			}
+		}
 	}
 }
 
@@ -245,9 +252,11 @@ func main() {
 		fmt.Fprintln(os.Stderr, "params:")
 		flag.PrintDefaults()
 	}
-	// user_test:test@tcp(10.215.20.22:4006)/test?timeout=100ms&readTimeout=2s&writeTimeout=2s&interpolateParams=true&maxPacketAllowed=16777216
+	qps := math.MaxInt32
+
 	flag.IntVar(&procs, "c", 100, "concurrency")
 	flag.IntVar(&rounds, "r", 1000, "rounds")
+	flag.IntVar(&qps, "qps", 0, "max qps. <= 0 means no limit")
 	flag.StringVar(&myCfg.Addr, "a", "127.0.0.1:3306", "mysql server address")
 	flag.StringVar(&myCfg.User, "u", "root", "user")
 	flag.StringVar(&myCfg.Passwd, "p", "", "password")
@@ -268,6 +277,7 @@ func main() {
 		return
 	}
 	dsn = myCfg.FormatDSN()
+	rate := float64(qps) / float64(procs)
 	wg := sync.WaitGroup{}
 	wg.Add(procs)
 	resultChan := make(chan [STAGE_MAX]TestResult, procs * 8)
@@ -275,7 +285,7 @@ func main() {
 	go func() {
 		for i := 0; i < procs; i++ {
 			go func() {
-				testRoutine(dsn, queries, rounds, resultChan)
+				testRoutine(dsn, queries, rounds, resultChan, rate)
 				wg.Done()
 			}()
 		}
