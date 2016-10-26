@@ -21,6 +21,8 @@ e.g. `./mysqlburst -c 100 -r 1000 -a 127.0.0.1:3306 -d mysql -u user -p pswd -q 
             password
       -q value
             queries
+      -qps int
+            max qps. <= 0 means no limit
       -r int
             rounds (default 1000)
       -rto duration
