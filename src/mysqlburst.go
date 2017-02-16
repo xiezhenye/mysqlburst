@@ -63,7 +63,7 @@ func (self *SummerySet) Summery() {
 	}
 }
 
-func testOnce(dsn string, queries []string, result *[STAGE_MAX]TestResult) {
+func testOnce(dsn string, queries []string, repeat int, result *[STAGE_MAX]TestResult) {
 	for i := byte(0); i < STAGE_MAX; i++ {
 		(*result)[i].ok = false
 	}
@@ -80,34 +80,37 @@ func testOnce(dsn string, queries []string, result *[STAGE_MAX]TestResult) {
 	afterRead := afterConn
 	(*result)[STAGE_QUERY].time = 0
 	(*result)[STAGE_READ].time = 0
-	for _, query := range queries {
-		beforeQuery := time.Now()
-		rows, err := db.(driver.Queryer).Query(query, []driver.Value{})
-		if err != nil {
-			(*result)[STAGE_QUERY].err = err
-			(*result)[STAGE_QUERY].ok = false
-			return
-		}
+	for i := 0; i < repeat; i++ {
+		for _, query := range queries {
+			beforeQuery := time.Now()
+			rows, err := db.(driver.Queryer).Query(query, []driver.Value{})
+			if err != nil {
+				(*result)[STAGE_QUERY].err = err
+				(*result)[STAGE_QUERY].ok = false
+				return
+			}
 
-		afterQuery := time.Now()
-		(*result)[STAGE_QUERY].ok = true
-		(*result)[STAGE_QUERY].time += afterQuery.Sub(beforeQuery)
+			afterQuery := time.Now()
+			(*result)[STAGE_QUERY].ok = true
+			(*result)[STAGE_QUERY].time += afterQuery.Sub(beforeQuery)
 
-		err = rows.Close() // Close() will read all rows
-		if err != nil && err != io.EOF {
-			(*result)[STAGE_READ].err = err
-			(*result)[STAGE_READ].ok = false
-			return
+			err = rows.Close() // Close() will read all rows
+			if err != nil && err != io.EOF {
+				(*result)[STAGE_READ].err = err
+				(*result)[STAGE_READ].ok = false
+				return
+			}
+			afterRead = time.Now()
+			(*result)[STAGE_READ].ok = true
+			(*result)[STAGE_READ].time += afterRead.Sub(afterQuery)
 		}
-		afterRead = time.Now()
-		(*result)[STAGE_READ].ok = true
-		(*result)[STAGE_READ].time += afterRead.Sub(afterQuery)
 	}
+
 	(*result)[STAGE_TOTAL].ok = true
 	(*result)[STAGE_TOTAL].time = afterRead.Sub(beforeConn)
 }
 
-func testRoutine(dsn string, queries []string, n int, outChan chan<- [STAGE_MAX]TestResult, rate float64) {
+func testRoutine(dsn string, queries []string, repeat int, n int, outChan chan<- [STAGE_MAX]TestResult, rate float64) {
 	var result [STAGE_MAX]TestResult
 	result[STAGE_CONN].stage = STAGE_CONN
 	result[STAGE_QUERY].stage = STAGE_QUERY
@@ -121,7 +124,7 @@ func testRoutine(dsn string, queries []string, n int, outChan chan<- [STAGE_MAX]
 				time.Sleep(d - result[STAGE_TOTAL].time)
 			}
 		}
-		testOnce(dsn, queries, &result)
+		testOnce(dsn, queries, repeat, &result)
 		outChan <-result
 	}
 }
@@ -237,6 +240,7 @@ func main() {
 	//driver.ErrBadConn = errors.New(driver.ErrBadConn)
 	procs := 0
 	rounds := 0
+	repeat := 1
 	dsn := ""
 	driverLog := false
 	var queries arrayFlags
@@ -256,6 +260,7 @@ func main() {
 
 	flag.IntVar(&procs, "c", 100, "concurrency")
 	flag.IntVar(&rounds, "r", 1000, "rounds")
+	flag.IntVar(&repeat, "n", 1, "repeat queries in a connection")
 	flag.IntVar(&qps, "qps", 0, "max qps. <= 0 means no limit")
 	flag.StringVar(&myCfg.Addr, "a", "127.0.0.1:3306", "mysql server address")
 	flag.StringVar(&myCfg.User, "u", "root", "user")
@@ -285,7 +290,7 @@ func main() {
 	go func() {
 		for i := 0; i < procs; i++ {
 			go func() {
-				testRoutine(dsn, queries, rounds, resultChan, rate)
+				testRoutine(dsn, queries, repeat, rounds, resultChan, rate)
 				wg.Done()
 			}()
 		}
