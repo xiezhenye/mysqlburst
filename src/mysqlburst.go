@@ -298,7 +298,7 @@ func main() {
 		"connect", "query", "read", "total",
 	}
 	for set := range summeryChan {
-		fmt.Printf("time: %s\n", msStr(set.endTime.Sub(set.startTime)))
+		fmt.Printf("[ %s ] time: %s\n", set.endTime, msStr(set.endTime.Sub(set.startTime)))
 		for i, title := range titles {
 			summery := set.summery[i]
 			errStr := "-"
