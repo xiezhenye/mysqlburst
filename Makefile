@@ -4,12 +4,17 @@ pwd=$(shell pwd)
 
 all : mysqlburst
 
-driver:
-	GOPATH=$(pwd) go get github.com/xiezhenye/go-sql-driver-mysql
+driver: src/vendor/github.com/xiezhenye/go-sql-driver-mysql
 
-mysqlburst: driver
-	GOPATH=$(pwd) go build src/mysqlburst.go
+src/vendor/github.com/xiezhenye/go-sql-driver-mysql:
+	mkdir -p src/vendor
+	GOPATH=$(pwd) go get github.com/xiezhenye/go-sql-driver-mysql
+	mv github.com src/vendor
+
+mysqlburst: driver mysqlburst.go src/burst/*.go
+	GOPATH=$(pwd) go build mysqlburst.go
 
 clean:
 	rm -rf mysqlburst pkg
+	
 
