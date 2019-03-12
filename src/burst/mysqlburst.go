@@ -1,31 +1,31 @@
-package main
+package burst
 
 import (
-	mysql "github.com/xiezhenye/go-sql-driver-mysql"
 	"database/sql/driver"
-	"fmt"
-	"time"
-	"sync"
-	"runtime"
 	"flag"
-	"math/big"
-	"math"
+	"fmt"
+	mysql "github.com/xiezhenye/go-sql-driver-mysql"
 	"io"
-	"os"
+	"math"
+	"math/big"
 	"math/rand"
+	"os"
+	"runtime"
+	"sync"
+	"time"
 )
 
 const (
-	STAGE_CONN  byte = 0
-	STAGE_QUERY byte = 1
-	STAGE_READ  byte = 2
-	STAGE_TOTAL byte = 3
+	StageConn  byte = 0
+	StageQuery byte = 1
+	StageRead  byte = 2
+	StageTotal byte = 3
 	//
-	STAGE_MAX   byte = 4
+	StageMax byte = 4
 )
 
 type TestResult struct {
-	stage                  byte
+	//stage                  byte
 	ok                     bool
 	err                    error
 	time                   time.Duration
@@ -46,92 +46,137 @@ type SummeryResult struct {
 type SummerySet struct {
 	startTime       time.Time
 	endTime         time.Time
-	summery         [STAGE_MAX]SummeryResult
+	summery         [StageMax]SummeryResult
 }
 
-func (self *SummerySet) Init() {
-	for i := byte(0); i < STAGE_MAX; i++ {
-		self.summery[i].minTime = math.MaxInt64
+func (s *SummerySet) Init() {
+	for i := byte(0); i < StageMax; i++ {
+		s.summery[i].minTime = math.MaxInt64
 	}
-	self.startTime = time.Now()
+	s.startTime = time.Now()
 }
 
-func (self *SummerySet) Summery() {
-	self.endTime = time.Now()
-	for i := byte(0); i < STAGE_MAX; i++ {
-		self.summery[i].Summery()
+func (s *SummerySet) Summery() {
+	s.endTime = time.Now()
+	for i := byte(0); i < StageMax; i++ {
+		s.summery[i].Summery()
 	}
 }
 
-func testOnce(dsn string, queries []string, repeat int, result *[STAGE_MAX]TestResult) {
-	for i := byte(0); i < STAGE_MAX; i++ {
-		(*result)[i].ok = false
-	}
+
+type Config struct {
+	procs   int
+	rounds  int
+	repeat  int
+	qps     int
+	dsn     string
+	queries []string
+	short   bool
+}
+
+type Routine struct {
+	db     driver.Conn
+	config Config
+	//end         time.Time
+}
+
+type Test struct {
+	routine     *Routine
+	result [StageMax]TestResult
+
+	beforeConn  time.Time
+	afterConn   time.Time
+	beforeQuery time.Time
+	afterQuery  time.Time
+	afterRead   time.Time
+
+}
+
+func (t *Test) testOnce() {
+	//for i := byte(0); i < StageMax; i++ {
+	//	t.result[i].ok = false
+	//}
+	config := t.routine.config
 	beforeConn := time.Now()
-	db, err := (mysql.MySQLDriver{}).Open(dsn)
-	if err != nil {
-		(*result)[STAGE_CONN].err = err
-		return
+	var afterConn time.Time
+	if config.short {
+		db, err := (mysql.MySQLDriver{}).Open(config.dsn)
+		if err != nil {
+			t.result[StageConn].err = err
+			return
+		}
+		afterConn = time.Now()
+		t.routine.db = db
+
+		defer db.Close()
+	} else {
+		afterConn = beforeConn
 	}
-	(*result)[STAGE_CONN].ok = true
-	afterConn := time.Now()
-	(*result)[STAGE_CONN].time = afterConn.Sub(beforeConn)
-	defer db.Close()
-	afterRead := afterConn
-	(*result)[STAGE_QUERY].time = 0
-	(*result)[STAGE_READ].time = 0
-	for i := 0; i < repeat; i++ {
-		for _, query := range queries {
+	t.result[StageConn].ok = true
+	t.result[StageConn].time = afterConn.Sub(beforeConn)
+
+	t.result[StageQuery].time = 0
+	t.result[StageRead].time = 0
+	for i := 0; i < config.repeat; i++ {
+		for _, query := range config.queries {
 			beforeQuery := time.Now()
-			rows, err := db.(driver.Queryer).Query(query, []driver.Value{})
+			rows, err := t.routine.db.(driver.Queryer).Query(query, []driver.Value{})
 			if err != nil {
-				(*result)[STAGE_QUERY].err = err
-				(*result)[STAGE_QUERY].ok = false
+				t.result[StageQuery].err = err
+				t.result[StageQuery].ok = false
 				return
 			}
 
 			afterQuery := time.Now()
-			(*result)[STAGE_QUERY].ok = true
-			(*result)[STAGE_QUERY].time += afterQuery.Sub(beforeQuery)
+			t.result[StageQuery].ok = true
+			t.result[StageQuery].time += afterQuery.Sub(beforeQuery)
 
 			err = rows.Close() // Close() will read all rows
 			if err != nil && err != io.EOF {
-				(*result)[STAGE_READ].err = err
-				(*result)[STAGE_READ].ok = false
+				t.result[StageRead].err = err
+				t.result[StageRead].ok = false
 				return
 			}
-			afterRead = time.Now()
-			(*result)[STAGE_READ].ok = true
-			(*result)[STAGE_READ].time += afterRead.Sub(afterQuery)
+			afterRead := time.Now()
+			t.result[StageRead].ok = true
+			t.result[StageRead].time += afterRead.Sub(afterQuery)
 		}
 	}
 
-	(*result)[STAGE_TOTAL].ok = true
-	(*result)[STAGE_TOTAL].time = afterRead.Sub(beforeConn)
+	t.result[StageTotal].ok = true
+	t.result[StageTotal].time = time.Now().Sub(beforeConn)
 }
 
-func testRoutine(dsn string, queries []string, repeat int, n int, outChan chan<- [STAGE_MAX]TestResult, rate float64) {
-	var result [STAGE_MAX]TestResult
-	result[STAGE_CONN].stage = STAGE_CONN
-	result[STAGE_QUERY].stage = STAGE_QUERY
-	result[STAGE_READ].stage = STAGE_READ
-	result[STAGE_TOTAL].stage = STAGE_TOTAL
-
-	for i := 0; i < n; i++ {
+func (r *Routine) run(outChan chan<- [StageMax]TestResult) {
+	rate := float64(r.config.qps) / float64(r.config.procs)
+	var test, prevTest Test
+	if !r.config.short {
+		db, err := (mysql.MySQLDriver{}).Open(r.config.dsn)
+		if err != nil {
+			test.result[StageConn].err = err
+			return
+		}
+		r.db = db
+	}
+	for i := 0; i < r.config.rounds; i++ {
+		prevTest, test = test, Test{}
 		if rate > 0 {
 			d := time.Duration(rand.ExpFloat64() * float64(time.Second) / rate)
-			if result[STAGE_TOTAL].time < d {
-				time.Sleep(d - result[STAGE_TOTAL].time)
+			if prevTest.result[StageTotal].time < d {
+				time.Sleep(d - prevTest.result[StageTotal].time)
 			}
 		}
-		testOnce(dsn, queries, repeat, &result)
-		outChan <-result
+		test.testOnce()
+		outChan <-test.result
+	}
+	if !r.config.short {
+		r.db.Close()
 	}
 }
 
-func collectInto(result *[STAGE_MAX]TestResult, ret *SummerySet) {
+func collectInto(result *[StageMax]TestResult, ret *SummerySet) {
 	var bigA  big.Int
-	for i := byte(0); i < STAGE_MAX; i++ {
+	for i := byte(0); i < StageMax; i++ {
 		summery := &(ret.summery[i])
 		summery.count++
 		if result[i].ok {
@@ -153,7 +198,7 @@ func collectInto(result *[STAGE_MAX]TestResult, ret *SummerySet) {
 	}
 }
 
-func summeryRoutine(inChan <-chan [STAGE_MAX]TestResult, outChan chan<- SummerySet, summeryIntervalSecond int) {
+func summeryRoutine(inChan <-chan [StageMax]TestResult, outChan chan<- SummerySet, summeryIntervalSecond int) {
 	var ret   SummerySet
 	var ticker *time.Ticker
 	ret.Init()
@@ -187,25 +232,25 @@ func summeryRoutine(inChan <-chan [STAGE_MAX]TestResult, outChan chan<- SummeryS
 	return
 }
 
-func (self *SummeryResult) Summery() {
+func (r *SummeryResult) Summery() {
 	var bigA, big2 big.Int
 	var bigR1, bigR2, big1N, big1N1 big.Rat
 	big2.SetInt64(2)
 	//  ∑(i-miu)2 = ∑(i2)-(∑i)2/n
-	n := self.count - self.failCount
+	n := r.count - r.failCount
 	if n > 1 {
-		self.avgTime = (time.Duration)((int64)(self.totalTime) / n)
+		r.avgTime = (time.Duration)((int64)(r.totalTime) / n)
 
-		big1N.SetInt64(n).Inv(&big1N) // 1/n
-		big1N1.SetInt64(n-1).Inv(&big1N1) // 1/(n-1)
-		bigA.SetInt64((int64)(self.totalTime)).Mul(&bigA, &bigA) // (∑i)2
-		bigR1.SetInt(&bigA).Mul(&bigR1, &big1N) // (∑i)2/n
-		bigR2.SetInt(&self.totalSquareTime).Sub(&bigR2, &bigR1)
+		big1N.SetInt64(n).Inv(&big1N)                         // 1/n
+		big1N1.SetInt64(n-1).Inv(&big1N1)                     // 1/(n-1)
+		bigA.SetInt64((int64)(r.totalTime)).Mul(&bigA, &bigA) // (∑i)2
+		bigR1.SetInt(&bigA).Mul(&bigR1, &big1N)               // (∑i)2/n
+		bigR2.SetInt(&r.totalSquareTime).Sub(&bigR2, &bigR1)
 		s2, _ := bigR2.Mul(&bigR2, &big1N1).Float64()
-		self.stddevTime = (time.Duration)((int64)(math.Sqrt(s2)))
+		r.stddevTime = (time.Duration)((int64)(math.Sqrt(s2)))
 	}
-	if self.minTime == math.MaxInt64 {
-		self.minTime = 0
+	if r.minTime == math.MaxInt64 {
+		r.minTime = 0
 	}
 }
 
@@ -218,11 +263,11 @@ func (*NullLogger) Print(v ...interface{}) {
 }
 
 type arrayFlags []string
-func (self *arrayFlags) String() string {
-	return fmt.Sprintf("%v", *self)
+func (a *arrayFlags) String() string {
+	return fmt.Sprintf("%v", *a)
 }
-func (self *arrayFlags) Set(value string) error {
-	*self = append(*self, value)
+func (a *arrayFlags) Set(value string) error {
+	*a = append(*a, value)
 	return nil
 }
 
@@ -232,16 +277,20 @@ func badArg() {
 }
 
 // mysqlburst -c 2000 -r 30 -d 'mha:M616VoUJBnYFi0L02Y24@tcp(10.200.180.54:3342)/x?timeout=5s&readTimeout=3s&writeTimeout=3s'
-func main() {
+func Main() {
 	runtime.GOMAXPROCS(runtime.NumCPU())
 	//go func() {
 	//      http.ListenAndServe("localhost:6060", nil)
 	//}()
 	//driver.ErrBadConn = errors.New(driver.ErrBadConn)
-	procs := 0
-	rounds := 0
-	repeat := 1
-	dsn := ""
+	config := Config {
+		qps: math.MaxInt32,
+		repeat: 1,
+	}
+	//procs := 0
+	//rounds := 0
+	//repeat := 1
+	//dsn := ""
 	driverLog := false
 	var queries arrayFlags
 	summeryIntervalSec := 0
@@ -256,12 +305,11 @@ func main() {
 		fmt.Fprintln(os.Stderr, "params:")
 		flag.PrintDefaults()
 	}
-	qps := math.MaxInt32
 
-	flag.IntVar(&procs, "c", 100, "concurrency")
-	flag.IntVar(&rounds, "r", 1000, "rounds")
-	flag.IntVar(&repeat, "n", 1, "repeat queries in a connection")
-	flag.IntVar(&qps, "qps", 0, "max qps. <= 0 means no limit")
+	flag.IntVar(&config.procs, "c", 100, "concurrency")
+	flag.IntVar(&config.rounds, "r", 1000, "rounds")
+	flag.IntVar(&config.repeat, "n", 1, "repeat queries in a connection")
+	flag.IntVar(&config.qps, "qps", 0, "max qps. <= 0 means no limit")
 	flag.StringVar(&myCfg.Addr, "a", "127.0.0.1:3306", "mysql server address")
 	flag.StringVar(&myCfg.User, "u", "root", "user")
 	flag.StringVar(&myCfg.Passwd, "p", "", "password")
@@ -271,6 +319,7 @@ func main() {
 	flag.DurationVar(&myCfg.WriteTimeout, "wto", 5 * time.Second, "write timeout")
 	flag.Var(&queries, "q", "queries")
 	flag.BoolVar(&driverLog, "l", false, "enable driver log, will be written to stderr")
+	flag.BoolVar(&config.short, "t", true, "use short connection, reconnect before each test")
 	flag.IntVar(&summeryIntervalSec, "i", 0, "summery interval (sec)")
 	flag.Parse()
 
@@ -281,16 +330,16 @@ func main() {
 		badArg()
 		return
 	}
-	dsn = myCfg.FormatDSN()
-	rate := float64(qps) / float64(procs)
+	config.dsn = myCfg.FormatDSN()
+	config.queries = queries
 	wg := sync.WaitGroup{}
-	wg.Add(procs)
-	resultChan := make(chan [STAGE_MAX]TestResult, procs * 8)
+	wg.Add(config.procs)
+	resultChan := make(chan [StageMax]TestResult, config.procs * 8)
 	summeryChan := make(chan SummerySet, 16)
 	go func() {
-		for i := 0; i < procs; i++ {
+		for i := 0; i < config.procs; i++ {
 			go func() {
-				testRoutine(dsn, queries, repeat, rounds, resultChan, rate)
+				(&Routine{ config: config }).run(resultChan)
 				wg.Done()
 			}()
 		}
@@ -299,7 +348,7 @@ func main() {
 	}()
 	go summeryRoutine(resultChan, summeryChan, summeryIntervalSec)
 
-	titles := [STAGE_MAX]string{
+	titles := [StageMax]string{
 		"connect", "query", "read", "total",
 	}
 	for set := range summeryChan {
