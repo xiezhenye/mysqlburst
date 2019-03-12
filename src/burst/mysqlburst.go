@@ -159,7 +159,7 @@ func (r *Routine) run(outChan chan<- [StageMax]TestResult) {
 		r.db = db
 	}
 	for i := 0; i < r.config.rounds; i++ {
-		prevTest, test = test, Test{}
+		prevTest, test = test, Test{ routine: r }
 		if rate > 0 {
 			d := time.Duration(rand.ExpFloat64() * float64(time.Second) / rate)
 			if prevTest.result[StageTotal].time < d {
@@ -319,7 +319,7 @@ func Main() {
 	flag.DurationVar(&myCfg.WriteTimeout, "wto", 5 * time.Second, "write timeout")
 	flag.Var(&queries, "q", "queries")
 	flag.BoolVar(&driverLog, "l", false, "enable driver log, will be written to stderr")
-	flag.BoolVar(&config.short, "t", true, "use short connection, reconnect before each test")
+	flag.BoolVar(&config.short, "t", false, "use short connection, reconnect before each test")
 	flag.IntVar(&summeryIntervalSec, "i", 0, "summery interval (sec)")
 	flag.Parse()
 
