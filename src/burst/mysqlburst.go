@@ -353,7 +353,14 @@ func Main() {
 	}
 	for set := range summeryChan {
 		fmt.Printf("[ %s ] time: %s\n", set.endTime, msStr(set.endTime.Sub(set.startTime)))
-		for i, title := range titles {
+		var i byte
+		if config.short {
+			i = 0
+		} else {
+			i = 1
+		}
+		for ; i < StageMax; i++ {
+			title := titles[i]
 			summery := set.summery[i]
 			errStr := "-"
 			lastErr := summery.lastError
