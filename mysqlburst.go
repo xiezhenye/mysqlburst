@@ -1,7 +1,7 @@
 package main
 
 import (
-	"burst"
+	"github.com/xiezhenye/mysqlburst/burst"
 )
 
 func main() {

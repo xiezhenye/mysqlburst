@@ -1,4 +1,4 @@
-package histogram
+package burst
 
 import (
 	"testing"

@@ -1,4 +1,4 @@
-package histogram
+package burst
 
 import "math"
 
@@ -6,6 +6,7 @@ type Bucket struct{
 	Count int64
 	Sum   int64
 }
+
 type Histogram struct {
 	b    [][]Bucket
 	max  int64
