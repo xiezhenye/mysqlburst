@@ -4,7 +4,6 @@ import (
 	"database/sql/driver"
 	"flag"
 	"fmt"
-	mysql "github.com/xiezhenye/go-sql-driver-mysql"
 	"io"
 	"math"
 	"math/big"
@@ -13,6 +12,8 @@ import (
 	"runtime"
 	"sync"
 	"time"
+
+	"github.com/go-sql-driver/mysql"
 )
 
 const (
