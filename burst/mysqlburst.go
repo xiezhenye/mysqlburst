@@ -27,9 +27,9 @@ const (
 
 type TestResult struct {
 	//stage                  byte
-	ok                     bool
-	err                    error
-	time                   time.Duration
+	ok   bool
+	err  error
+	time time.Duration
 }
 
 type SummeryResult struct {
@@ -45,9 +45,9 @@ type SummeryResult struct {
 }
 
 type SummerySet struct {
-	startTime       time.Time
-	endTime         time.Time
-	summery         [StageMax]SummeryResult
+	startTime time.Time
+	endTime   time.Time
+	summery   [StageMax]SummeryResult
 }
 
 func (s *SummerySet) Init() {
@@ -63,7 +63,6 @@ func (s *SummerySet) Summery() {
 		s.summery[i].Summery()
 	}
 }
-
 
 type Config struct {
 	procs   int
@@ -82,15 +81,14 @@ type Routine struct {
 }
 
 type Test struct {
-	routine     *Routine
-	result [StageMax]TestResult
+	routine *Routine
+	result  [StageMax]TestResult
 
 	beforeConn  time.Time
 	afterConn   time.Time
 	beforeQuery time.Time
 	afterQuery  time.Time
 	afterRead   time.Time
-
 }
 
 func (t *Test) testOnce() {
@@ -160,7 +158,7 @@ func (r *Routine) run(outChan chan<- [StageMax]TestResult) {
 		r.db = db
 	}
 	for i := 0; i < r.config.rounds; i++ {
-		prevTest, test = test, Test{ routine: r }
+		prevTest, test = test, Test{routine: r}
 		if rate > 0 {
 			d := time.Duration(rand.ExpFloat64() * float64(time.Second) / rate)
 			if prevTest.result[StageTotal].time < d {
@@ -168,7 +166,7 @@ func (r *Routine) run(outChan chan<- [StageMax]TestResult) {
 			}
 		}
 		test.testOnce()
-		outChan <-test.result
+		outChan <- test.result
 	}
 	if !r.config.short {
 		r.db.Close()
@@ -176,7 +174,7 @@ func (r *Routine) run(outChan chan<- [StageMax]TestResult) {
 }
 
 func collectInto(result *[StageMax]TestResult, ret *SummerySet) {
-	var bigA  big.Int
+	var bigA big.Int
 	for i := byte(0); i < StageMax; i++ {
 		summery := &(ret.summery[i])
 		summery.count++
@@ -187,7 +185,7 @@ func collectInto(result *[StageMax]TestResult, ret *SummerySet) {
 			if result[i].time < summery.minTime {
 				summery.minTime = result[i].time
 			}
-			summery.totalTime+= result[i].time
+			summery.totalTime += result[i].time
 			bigA.SetInt64((int64)(result[i].time)).Mul(&bigA, &bigA)
 			summery.totalSquareTime.Add(&(summery.totalSquareTime), &bigA)
 		} else {
@@ -200,24 +198,24 @@ func collectInto(result *[StageMax]TestResult, ret *SummerySet) {
 }
 
 func summeryRoutine(inChan <-chan [StageMax]TestResult, outChan chan<- SummerySet, summeryIntervalSecond int) {
-	var ret   SummerySet
+	var ret SummerySet
 	var ticker *time.Ticker
 	ret.Init()
 
 	if summeryIntervalSecond > 0 {
 		summeryInterval := time.Second * time.Duration(summeryIntervalSecond)
 		ticker = time.NewTicker(summeryInterval)
-		loop:
+	loop:
 		for {
 			select {
 			case result, ok := <-inChan:
 				if !ok {
-					break loop;
+					break loop
 				}
 				collectInto(&result, &ret)
 			case <-ticker.C:
 				ret.Summery()
-				outChan<-ret
+				outChan <- ret
 				ret = SummerySet{}
 				ret.Init()
 			}
@@ -228,7 +226,7 @@ func summeryRoutine(inChan <-chan [StageMax]TestResult, outChan chan<- SummerySe
 		}
 	}
 	ret.Summery()
-	outChan<-ret
+	outChan <- ret
 	close(outChan)
 	return
 }
@@ -243,7 +241,7 @@ func (r *SummeryResult) Summery() {
 		r.avgTime = (time.Duration)((int64)(r.totalTime) / n)
 
 		big1N.SetInt64(n).Inv(&big1N)                         // 1/n
-		big1N1.SetInt64(n-1).Inv(&big1N1)                     // 1/(n-1)
+		big1N1.SetInt64(n - 1).Inv(&big1N1)                   // 1/(n-1)
 		bigA.SetInt64((int64)(r.totalTime)).Mul(&bigA, &bigA) // (∑i)2
 		bigR1.SetInt(&bigA).Mul(&bigR1, &big1N)               // (∑i)2/n
 		bigR2.SetInt(&r.totalSquareTime).Sub(&bigR2, &bigR1)
@@ -256,14 +254,16 @@ func (r *SummeryResult) Summery() {
 }
 
 func msStr(t time.Duration) string {
-	return fmt.Sprintf("%0.3f ms", float64(int64(t) / 1000) / 1000.0)
+	return fmt.Sprintf("%0.3f ms", float64(int64(t)/1000)/1000.0)
 }
 
 type NullLogger struct{}
+
 func (*NullLogger) Print(v ...interface{}) {
 }
 
 type arrayFlags []string
+
 func (a *arrayFlags) String() string {
 	return fmt.Sprintf("%v", *a)
 }
@@ -284,8 +284,8 @@ func Main() {
 	//      http.ListenAndServe("localhost:6060", nil)
 	//}()
 	//driver.ErrBadConn = errors.New(driver.ErrBadConn)
-	config := Config {
-		qps: math.MaxInt32,
+	config := Config{
+		qps:    math.MaxInt32,
 		repeat: 1,
 	}
 	//procs := 0
@@ -296,9 +296,10 @@ func Main() {
 	var queries arrayFlags
 	summeryIntervalSec := 0
 	myCfg := mysql.Config{
-		Net: "tcp",
-		InterpolateParams: true,
-		MaxAllowedPacket: 16777216,
+		Net:                  "tcp",
+		InterpolateParams:    true,
+		MaxAllowedPacket:     16777216,
+		AllowNativePasswords: true,
 	}
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage of %s:\n", os.Args[0])
@@ -315,9 +316,9 @@ func Main() {
 	flag.StringVar(&myCfg.User, "u", "root", "user")
 	flag.StringVar(&myCfg.Passwd, "p", "", "password")
 	flag.StringVar(&myCfg.DBName, "d", "mysql", "database")
-	flag.DurationVar(&myCfg.Timeout, "cto", 1 * time.Second, "connect timeout")
-	flag.DurationVar(&myCfg.ReadTimeout, "rto", 5 * time.Second, "read timeout")
-	flag.DurationVar(&myCfg.WriteTimeout, "wto", 5 * time.Second, "write timeout")
+	flag.DurationVar(&myCfg.Timeout, "cto", 1*time.Second, "connect timeout")
+	flag.DurationVar(&myCfg.ReadTimeout, "rto", 5*time.Second, "read timeout")
+	flag.DurationVar(&myCfg.WriteTimeout, "wto", 5*time.Second, "write timeout")
 	flag.Var(&queries, "q", "queries")
 	flag.BoolVar(&driverLog, "l", false, "enable driver log, will be written to stderr")
 	flag.BoolVar(&config.short, "t", false, "use short connection, reconnect before each test")
@@ -335,12 +336,12 @@ func Main() {
 	config.queries = queries
 	wg := sync.WaitGroup{}
 	wg.Add(config.procs)
-	resultChan := make(chan [StageMax]TestResult, config.procs * 8)
+	resultChan := make(chan [StageMax]TestResult, config.procs*8)
 	summeryChan := make(chan SummerySet, 16)
 	go func() {
 		for i := 0; i < config.procs; i++ {
 			go func() {
-				(&Routine{ config: config }).run(resultChan)
+				(&Routine{config: config}).run(resultChan)
 				wg.Done()
 			}()
 		}
@@ -376,5 +377,3 @@ func Main() {
 		fmt.Println()
 	}
 }
-
-

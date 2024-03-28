@@ -2,7 +2,7 @@ package burst
 
 import "math"
 
-type Bucket struct{
+type Bucket struct {
 	Count int64
 	Sum   int64
 }
@@ -31,7 +31,7 @@ func newHistogram(rb int) (ret Histogram) {
 }
 
 func (h *Histogram) rowSize() int {
-	return h.r - h.r / 10
+	return h.r - h.r/10
 }
 
 func NewHistogram() Histogram {
@@ -67,7 +67,7 @@ func (h *Histogram) pos(n int64) (int, int) {
 		return 0, 0
 	}
 	bi := int(math.Log10(float64(n)))
-	oi := int(n * int64(h.r / 10) / int64(math.Pow10(bi)) - int64(h.r / 10))
+	oi := int(n*int64(h.r/10)/int64(math.Pow10(bi)) - int64(h.r/10))
 	return bi, oi
 }
 
@@ -88,7 +88,7 @@ func (h *Histogram) iterate(f func(int, int) bool) {
 	i1, j1 := h.pos(h.max)
 	i, j := i0, j0
 	for {
-		if (f(i, j)) {
+		if f(i, j) {
 			break
 		}
 		j++
@@ -133,7 +133,7 @@ func (h *Histogram) Histogram(n int) []Bucket {
 			ri++
 		}
 		t := h.b[i][j]
-		if ret[ri].Count + t.Count <= c {
+		if ret[ri].Count+t.Count <= c {
 			ret[ri].Count += t.Count
 			ret[ri].Sum += t.Sum
 			c -= t.Count
